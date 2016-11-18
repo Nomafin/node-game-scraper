@@ -1,0 +1,22 @@
+{
+  "name": "node-game-scraper",
+  "version": "1.0.0",
+  "description": "Scrapes NHL game data and stores it in a database.",
+  "main": "scrape-game.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kevkan/node-game-scraper.git"
+  },
+  "author": "datarink",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kevkan/node-game-scraper/issues"
+  },
+  "homepage": "https://github.com/kevkan/node-game-scraper#readme",
+  "dependencies": {
+    "request": "^2.78.0"
+  }
+}
