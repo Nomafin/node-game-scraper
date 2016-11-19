@@ -342,8 +342,8 @@ function processData(gId, pbpJson, shiftJson) {
 			var second = {
 				goalies: [[], []],
 				skaters: [[], []],
-				score: [0, 0],
-				strengthSit: null
+				strengthSits: ["", ""],
+				score: [0, 0]
 			};
 			seconds.push(second);
 		}
@@ -370,8 +370,52 @@ function processData(gId, pbpJson, shiftJson) {
 			});
 		}
 
-		console.log(seconds);
+		// Record strength situation at each second
+		seconds.forEach(function(sec) {
+			if (sec["goalies"][0].length < 1 || sec["goalies"][1].length < 1) {
+				sec["strengthSits"] = ["other", "other"];
+			} else if (sec["skaters"][0].length === 5 && sec["skaters"][1].length === 5) {
+				sec["strengthSits"] = ["ev5", "ev5"];
+			} else if (sec["skaters"][0].length > sec["skaters"][1].length
+				&& sec["skaters"][0].length <= 6
+				&& sec["skaters"][1].length >= 3) {
+				sec["strengthSits"] = ["pp", "sh"];
+			} else if (sec["skaters"][1].length > sec["skaters"][0].length
+				&& sec["skaters"][1].length <= 6
+				&& sec["skaters"][0].length >= 3) {
+				sec["strengthSits"] = ["sh", "pp"];
+			} else {
+				sec["strengthSits"] = ["other", "other"];
+			}
+		});
 
+		// For each second, record the score
+		// For goals scored in previous period, add the goal to every second of the current period
+		// For goals in the current period:
+		// 		If goal time = 0: increment 0:00 - 0:01 (idx0) and onwards
+		// 		If goal time = 1: don't increment 0:00 - 0:01, but increment 0:01 - 0:02 (idx1) and onwards
+		// 		If goal time = 2: don't increment 0:01 - 0:02, but increment 0:02 - 0:03 (idx2) and onwards
+		// 		If goal time = 3: don't increment 0:02 - 0:03, but increment 0:03 - 0:04 (idx3) and onwards
+		// 		If goal time = 4 and the period is 4s long: don't increment 0:03 - 0:04, and there are no subsequent slots to increment
+
+		var goals = eventData.filter(function(d) { return d["type"] === "goal" && d["period"] <= prd; });
+		goals.forEach(function(g) {
+
+			var venueIdx = g["venue"] === "away" ? 0 : 1;
+			
+			if (g["period"] < prd) {
+				seconds.forEach(function(sec) {
+					sec["score"][venueIdx]++;
+				});
+			} else {
+				var secsToIncrement = seconds.filter(function(sec, idx) { return idx >= g["time"]; });
+				secsToIncrement.forEach(function(sec) {
+					sec["score"][venueIdx]++;
+				});
+			}
+		});
+
+		console.log(seconds);
 	}
 }
 
