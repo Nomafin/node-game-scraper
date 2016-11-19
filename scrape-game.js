@@ -3,6 +3,9 @@
 // startGameId & endGameId: 5 digits long (e.g., 20243)
 // If endGameId is specified, all games between startGameId and endGameId (inclusive) are scraped
 
+// TO DO
+// - Handle exceptions like the Winter Classic and inaccurate penalty information
+
 // Parse and store arguments
 var season = parseInt(process.argv[2]);
 var startGameId = parseInt(process.argv[3]);
@@ -54,6 +57,7 @@ gameIds.forEach(function(gId) {
 			request(shiftJsonUrl, function (shiftError, shiftResponse, shiftBody) {
 				if (!shiftError && shiftResponse.statusCode == 200) {
 					shiftJson = JSON.parse(shiftBody);
+					shiftJson = shiftJson.data;
 					processData(gId, pbpJson, shiftJson);
 				} else {
 					console.log(shiftError);
@@ -69,7 +73,9 @@ function processData(gId, pbpJson, shiftJson) {
 
 	// Variables for output
 	var gameDate = 0;		// An int including date and time
+	var maxPeriod = 0;
 	var eventData = [];		// An array of event objects
+	var shiftData = [];
 	var playerData = {};	// An associative array, using "ID" + playerId as keys. Contains player objects
 	var teamData = {		// An associate array, using "away"/"home" as keys. Contains team objects
 		away: {},
@@ -125,6 +131,7 @@ function processData(gId, pbpJson, shiftJson) {
 		playerData[prop]["id"] = gameDataPlayersObject[prop]["id"];
 		playerData[prop]["firstName"] = gameDataPlayersObject[prop]["firstName"];
 		playerData[prop]["lastName"] = gameDataPlayersObject[prop]["lastName"];
+		playerData[prop]["shifts"] = [];
 
 		// Record the player's team, venue, position, and jersey number
 		["away", "home"].forEach(function(v) {
@@ -274,7 +281,7 @@ function processData(gId, pbpJson, shiftJson) {
 	// To find penalty shots, find penalties with severity "penalty shot", then get the next event
 	// Since eventData only contains faceoffs, penalties, and shots, we can treat the first shot after the penalty as the penalty shot
 	//
-	
+
 	eventData.forEach(function(ev, i) {
 		if (ev["type"] === "penalty") {
 			if (ev["penSeverity"] === "penalty shot") {
@@ -291,6 +298,81 @@ function processData(gId, pbpJson, shiftJson) {
 			}
 		}
 	});
+
+	//
+	//
+	// Process shift data
+	//
+	//
+
+	// Append shifts to the player objects in playerData
+	// shiftJson is an array of shift objects
+	// Also find the max period
+	shiftJson.forEach(function(sh) {
+		if ((sh["period"] <= 4 && !isPlayoffs) || isPlayoffs) {
+			playerData["ID" + sh["playerId"]]["shifts"].push({
+				period: sh["period"],
+				start: toSecs(sh["startTime"]),
+				end: toSecs(sh["endTime"])
+			});
+			if (sh["period"] > maxPeriod) {
+				maxPeriod = sh["period"];
+			}
+		}
+	});
+
+	//
+	// Process shifts one period at a time
+	//
+
+	for (var prd = 1; prd <= maxPeriod; prd++) {
+
+		// Record the number of home and away skaters on-ice at each second of the period
+		var prdDur = 20 * 60;
+		if (!isPlayoffs && prd === 4) {
+			prdDur = 5 * 60;
+		}
+
+		// Initialize array to store information about each second
+		// A 4s period will have 4 elements: 0:00-0:01, 0:01-0:02, 0:02-0:03, 0:03-0:04
+		// Each element represents a 1s slot: e.g., idx 0 counts the number of players on-ice between 0:00-0:01
+		var seconds = [];
+		for (var t = 0; t < prdDur; t++) {
+			// Use idx0 for away; idx1 for away
+			var second = {
+				goalies: [[], []],
+				skaters: [[], []],
+				score: [0, 0],
+				strengthSit: null
+			};
+			seconds.push(second);
+		}
+
+		// Record players on ice at each second
+		// If a shift starts and ends at [0, 2], then add the player to 0:00-0:01 (idx0), 0:01-0:02 (idx1)
+		for (var key in playerData) {
+
+			// Check if the property is an actual property of the players object, and doesn't come from the prototype
+			if (!playerData.hasOwnProperty(key)) {
+				continue;
+			}
+
+			var venueIdx = playerData[key]["venue"] === "away" ? 0 : 1;
+			var shiftsInPrd = playerData[key]["shifts"].filter(function(d) { return d["period"] === prd; });
+			shiftsInPrd.forEach(function(sh) {
+				for (var t = sh["start"]; t < sh["end"]; t++) {
+					if (playerData[key]["position"] === "g") {
+						seconds[t]["goalies"][venueIdx].push(playerData[key]["id"]);
+					} else {
+						seconds[t]["skaters"][venueIdx].push(playerData[key]["id"]);
+					}
+				}
+			});
+		}
+
+		console.log(seconds);
+
+	}
 }
 
 // Convert mm:ss to seconds
