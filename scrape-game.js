@@ -83,7 +83,7 @@ function processData(gId, pbpJson, shiftJson) {
 	};
 
 	// Contexts and stats to record
-	var recordedScoreDiffs = ["-3", "-2", "-1", "0", "1", "2", "3"];
+	var recordedScoreSits = ["-3", "-2", "-1", "0", "1", "2", "3"];
 	var recordedStrengthSits = ["ev5", "pp", "sh", "penShot", "other"];
 	var recordedStats = ["toi", "ig", "is", "ibs", "ims", "ia1", "ia2", "blocked", "gf", "ga", "sf", "sa", "bsf", "bsa", "msf", "msa", "foWon", "foLost", "ofo", "dfo", "nfo", "penTaken", "penDrawn"];
 
@@ -103,7 +103,7 @@ function processData(gId, pbpJson, shiftJson) {
 		// Initialize contexts and stats
 		recordedStrengthSits.forEach(function(str) {
 			teamData[v][str] = {};
-			recordedScoreDiffs.forEach(function(sc) {
+			recordedScoreSits.forEach(function(sc) {
 				teamData[v][str][sc] = {};
 				recordedStats.forEach(function(stat) {
 					teamData[v][str][sc][stat] = 0;
@@ -146,7 +146,7 @@ function processData(gId, pbpJson, shiftJson) {
 		// Initialize contexts and stats
 		recordedStrengthSits.forEach(function(str) {
 			playerData[prop][str] = {};
-			recordedScoreDiffs.forEach(function(sc) {
+			recordedScoreSits.forEach(function(sc) {
 				playerData[prop][str][sc] = {};
 				recordedStats.forEach(function(stat) {
 					playerData[prop][str][sc][stat] = 0;
@@ -343,7 +343,8 @@ function processData(gId, pbpJson, shiftJson) {
 				goalies: [[], []],
 				skaters: [[], []],
 				strengthSits: ["", ""],
-				score: [0, 0]
+				score: [0, 0],
+				scoreSits: ["", ""],
 			};
 			seconds.push(second);
 		}
@@ -415,6 +416,12 @@ function processData(gId, pbpJson, shiftJson) {
 			}
 		});
 
+		// Record each team's score situation for each second
+		seconds.forEach(function(sec) {
+			sec["scoreSits"][0] = (Math.max(-3, Math.min(3, sec["score"][0] - sec["score"][1]))).toString();
+			sec["scoreSits"][1] = (Math.max(-3, Math.min(3, sec["score"][1] - sec["score"][0]))).toString();
+		});
+		
 		console.log(seconds);
 	}
 }
