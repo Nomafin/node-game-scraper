@@ -3,7 +3,7 @@
 // startGameId & endGameId: 5 digits long (e.g., 20243)
 // If endGameId is specified, all games between startGameId and endGameId (inclusive) are scraped
 
-// TO DO
+// TODO
 // - Handle exceptions like the Winter Classic and inaccurate penalty information
 
 // Parse and store arguments
@@ -37,8 +37,9 @@ if (endGameId) {
 }
 console.log("Games to scrape: " + gameIds);
 
-
-var request = require("request");
+//
+// Loop through each gameId
+//
 
 gameIds.forEach(function(gId) {
 
@@ -47,6 +48,7 @@ gameIds.forEach(function(gId) {
 	var shiftJson;
 
 	// Load pbp and shift jsons
+	var request = require("request");
 	var pbpJsonUrl = "https://statsapi.web.nhl.com/api/v1/game/" + urlId  + "/feed/live";
 	var shiftJsonUrl = "http://www.nhl.com/stats/rest/shiftcharts?cayenneExp=gameId=" + urlId;
 	request(pbpJsonUrl, function (pbpError, pbpResponse, pbpBody) {
@@ -68,6 +70,10 @@ gameIds.forEach(function(gId) {
 		}
 	});
 });
+
+//
+// Process pbp and shift data for a specified game
+//
 
 function processData(gId, pbpJson, shiftJson) {
 
@@ -114,8 +120,8 @@ function processData(gId, pbpJson, shiftJson) {
 
 	//
 	// Prepare player output
-	// Loop through the properties in pbpJson.gameData.players — each property is a playerId
-	// "prop" is formatted as "ID" + playerId
+	// Loop through the properties in pbpJson.gameData.players
+	// Each property is a playerId: "prop" is formatted as "ID" + playerId
 	//
 
 	var gameDataPlayersObject = pbpJson.gameData.players;
@@ -127,29 +133,29 @@ function processData(gId, pbpJson, shiftJson) {
 			continue;
 		}
 
-		playerData[prop] = {};
-		playerData[prop]["id"] = gameDataPlayersObject[prop]["id"];
-		playerData[prop]["firstName"] = gameDataPlayersObject[prop]["firstName"];
-		playerData[prop]["lastName"] = gameDataPlayersObject[prop]["lastName"];
-		playerData[prop]["shifts"] = [];
+		var pId = gameDataPlayersObject[prop]["id"].toString();
+		playerData[pId] = {};
+		playerData[pId]["firstName"] = gameDataPlayersObject[prop]["firstName"];
+		playerData[pId]["lastName"] = gameDataPlayersObject[prop]["lastName"];
+		playerData[pId]["shifts"] = [];
 
 		// Record the player's team, venue, position, and jersey number
 		["away", "home"].forEach(function(v) {
 			if (boxScoreTeamsObject[v]["players"].hasOwnProperty(prop)) {
-				playerData[prop]["position"] = boxScoreTeamsObject[v]["players"][prop]["position"]["code"].toLowerCase();
-				playerData[prop]["jersey"] = +boxScoreTeamsObject[v]["players"][prop]["jerseyNumber"];
-				playerData[prop]["venue"] = v;
-				playerData[prop]["team"] = teamData[v]["tricode"];
+				playerData[pId]["position"] = boxScoreTeamsObject[v]["players"][prop]["position"]["code"].toLowerCase();
+				playerData[pId]["jersey"] = +boxScoreTeamsObject[v]["players"][prop]["jerseyNumber"];
+				playerData[pId]["venue"] = v;
+				playerData[pId]["team"] = teamData[v]["tricode"];
 			}
 		});
 
 		// Initialize contexts and stats
 		recordedStrengthSits.forEach(function(str) {
-			playerData[prop][str] = {};
+			playerData[pId][str] = {};
 			recordedScoreSits.forEach(function(sc) {
-				playerData[prop][str][sc] = {};
+				playerData[pId][str][sc] = {};
 				recordedStats.forEach(function(stat) {
-					playerData[prop][str][sc][stat] = 0;
+					playerData[pId][str][sc][stat] = 0;
 				});
 			});
 		});
@@ -276,12 +282,9 @@ function processData(gId, pbpJson, shiftJson) {
 
 	}); // Done looping through eventsObject
 
-	//
 	// Flag penalty shots by appending {penalty_shot} to the description
 	// To find penalty shots, find penalties with severity "penalty shot", then get the next event
 	// Since eventData only contains faceoffs, penalties, and shots, we can treat the first shot after the penalty as the penalty shot
-	//
-
 	eventData.forEach(function(ev, i) {
 		if (ev["type"] === "penalty") {
 			if (ev["penSeverity"] === "penalty shot") {
@@ -310,7 +313,7 @@ function processData(gId, pbpJson, shiftJson) {
 	// Also find the max period
 	shiftJson.forEach(function(sh) {
 		if ((sh["period"] <= 4 && !isPlayoffs) || isPlayoffs) {
-			playerData["ID" + sh["playerId"]]["shifts"].push({
+			playerData[sh["playerId"].toString()]["shifts"].push({
 				period: sh["period"],
 				start: toSecs(sh["startTime"]),
 				end: toSecs(sh["endTime"])
@@ -366,7 +369,7 @@ function processData(gId, pbpJson, shiftJson) {
 			shiftsInPrd.forEach(function(sh) {
 				var intervalsToUpdate = intervals.filter(function(d) { return d["start"] >= sh["start"] && d["end"] <= sh["end"]; });
 				intervalsToUpdate.forEach(function(interval) {
-					interval[positionToUpdate][venueIdx].push(playerData[key]["id"]);
+					interval[positionToUpdate][venueIdx].push(key);
 				});
 			});
 		}
@@ -421,7 +424,42 @@ function processData(gId, pbpJson, shiftJson) {
 			interval["scoreSits"][1] = (Math.max(-3, Math.min(3, interval["score"][1] - interval["score"][0]))).toString();
 		});
 
-		console.log(intervals);
+		//
+		// Increment toi for each score and strength situation for players and teams
+		//
+
+		intervals.forEach(function(interval) {
+
+			// Loop through away and home teams
+			["away", "home"].forEach(function(venue, venueIdx) {
+
+				// Increment players' toi
+				interval["skaters"][venueIdx].forEach(function(pId) {
+					playerData[pId][interval["strengthSits"][venueIdx]][interval["scoreSits"][venueIdx]]["toi"]++;
+				});
+				interval["goalies"][venueIdx].forEach(function(pId) {
+					playerData[pId][interval["strengthSits"][venueIdx]][interval["scoreSits"][venueIdx]]["toi"]++;
+				});
+
+				// Increment teams' toi
+				teamData[venue][interval["strengthSits"][venueIdx]][interval["scoreSits"][venueIdx]]["toi"]++;
+			});
+		});
+
+		//
+		// TODO: Append on-ice players for events
+		// TODO: For penalty shots, update the on-ice players so that only the shooter and goalie are on the ice
+		// To do this for NON-PENALTY SHOTS
+		//		1. Get the event's time
+		//		2. Get the corresponding interval object
+		//		3. Loop through the interval's skaters and goalies
+		// To do this for penalty shots:
+		//		1. See Python code
+		//
+
+		//
+		// TODO: For each event, increment player and team stats
+		//
 
 	} // Done looping through a game's periods
 }
