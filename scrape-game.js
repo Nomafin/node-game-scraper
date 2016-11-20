@@ -4,6 +4,9 @@
 // If endGameId is specified, all games between startGameId and endGameId (inclusive) are scraped
 
 // TODO
+// - Only scrape game if it's final
+// - Use local file if it already exists, but include option to redownload input files
+// - If a local file is already found, delete the game from the database before inserting new records
 // - Handle exceptions like the Winter Classic and inaccurate penalty information
 
 // Parse and store arguments
@@ -51,22 +54,34 @@ gameIds.forEach(function(gId) {
 	var request = require("request");
 	var pbpJsonUrl = "https://statsapi.web.nhl.com/api/v1/game/" + urlId  + "/feed/live";
 	var shiftJsonUrl = "http://www.nhl.com/stats/rest/shiftcharts?cayenneExp=gameId=" + urlId;
-	request(pbpJsonUrl, function (pbpError, pbpResponse, pbpBody) {
-		if (!pbpError && pbpResponse.statusCode == 200) {
-			pbpJson = JSON.parse(pbpBody);
 
-			// Load shift json
-			request(shiftJsonUrl, function (shiftError, shiftResponse, shiftBody) {
-				if (!shiftError && shiftResponse.statusCode == 200) {
-					shiftJson = JSON.parse(shiftBody);
-					shiftJson = shiftJson.data;
-					processData(gId, pbpJson, shiftJson);
-				} else {
-					console.log(shiftError);
-				}
-			});
+	// Only start processing after both pbp and shift jsons have been downloaded
+	var downloadedFiles = 0;
+
+	// Download pbp json
+	request(pbpJsonUrl, function (error, response, body) {
+		if (!error && response.statusCode == 200) {
+			pbpJson = JSON.parse(body);
+			downloadedFiles++;
+			if (downloadedFiles === 2) {
+				processData(gId, pbpJson, shiftJson);
+			}
 		} else {
-			console.log(pbpError);
+			console.log("Unable to get pbp json: " + error);
+		}
+	});
+
+	// Download shift json
+	request(shiftJsonUrl, function (error, response, body) {
+		if (!error && response.statusCode == 200) {
+			shiftJson = JSON.parse(body);
+			shiftJson = shiftJson["data"];
+			downloadedFiles++;
+			if (downloadedFiles === 2) {
+				processData(gId, pbpJson, shiftJson);
+			}
+		} else {
+			console.log("Unable to get shift json: " + error);
 		}
 	});
 });
@@ -334,8 +349,8 @@ function processData(gId, pbpJson, shiftJson) {
 		}
 
 		// Initialize array to store information about each 1-second interval
-		// A 4s period will have 4 elements: 0:00-0:01, 0:01-0:02, 0:02-0:03, 0:03-0:04
-		// Each element represents a 1s slot: e.g., idx 0 counts the number of players on-ice between 0:00-0:01
+		// A 4-second period will have 4 intervals: 0:00-0:01, 0:01-0:02, 0:02-0:03, 0:03-0:04
+		// E.g., the interval at idx0 counts the number of on-ice players during 0:00-0:01
 		var intervals = [];
 		for (var t = 0; t < prdDur; t++) {
 			// Use idx0 for away; idx1 for away
@@ -351,8 +366,8 @@ function processData(gId, pbpJson, shiftJson) {
 			intervals.push(interval);
 		}
 
-		// Record players on ice at each interval
-		// If a shift has start = 0 and end = 2, then add the player to 0:00-0:01, 0:01-0:02, but not 0:02-0:03
+		// Record on-ice players during each interval
+		// If a shift has start=0 and end=2, then add the player to 0:00-0:01, 0:01-0:02, but not 0:02-0:03
 		for (var key in playerData) {
 
 			// Check if the property is an actual property of the players object, and doesn't come from the prototype
@@ -374,7 +389,7 @@ function processData(gId, pbpJson, shiftJson) {
 			});
 		}
 
-		// Record strength situation at each interval
+		// Record strength situation during each interval
 		intervals.forEach(function(interval) {
 			if (interval["goalies"][0].length < 1 || interval["goalies"][1].length < 1) {
 				interval["strengthSits"] = ["other", "other"];
@@ -446,6 +461,7 @@ function processData(gId, pbpJson, shiftJson) {
 			});
 		});
 
+		console.log(intervals);
 		//
 		// TODO: Append on-ice players for events
 		// TODO: For penalty shots, update the on-ice players so that only the shooter and goalie are on the ice
@@ -453,8 +469,9 @@ function processData(gId, pbpJson, shiftJson) {
 		//		1. Get the event's time
 		//		2. Get the corresponding interval object
 		//		3. Loop through the interval's skaters and goalies
-		// To do this for penalty shots:
-		//		1. See Python code
+		// To do this for penalty shots (see Python code):
+		//		1. Get the shooter from the event data
+		//		2. Get the goalie from the event data; if not listed in the event data, refer to the corresponding interval object
 		//
 
 		//
