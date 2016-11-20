@@ -5,15 +5,16 @@
 
 // TODO
 // - Only scrape game if it's final
-// - Use local file if it already exists, but include option to redownload input files
 // - If a local file is already found, delete the game from the database before inserting new records
 // - Handle exceptions like the Winter Classic and inaccurate penalty information
 
 var fs = require("fs");
 var request = require("request");
 
-// Parse and store arguments
+// Parse and store season argument
 var season = parseInt(process.argv[2]);
+
+// Parse and store gameId argument
 var startAndEndGameIds = process.argv[3];
 var startGameId;
 var endGameId;
@@ -22,6 +23,14 @@ if (startAndEndGameIds.indexOf("-") >= 0) {
 	endGameId = parseInt(startAndEndGameIds.substring(startAndEndGameIds.indexOf("-") + 1));
 } else {
 	startGameId = parseInt(startAndEndGameIds);
+}
+
+// Parse and store argument to always download input files
+var isAlwaysDownloadInputFiles = false;
+if (process.argv[4]) {
+	if (process.argv[4].toLowerCase() === "download") {
+		isAlwaysDownloadInputFiles = true;
+	}
 }
 
 // Validate arguments
@@ -70,10 +79,24 @@ gameIds.forEach(function(gId) {
 	// Try to load local pbp and shift input files - if they don't exist, download them
 	var isUseLocalFiles = true;
 	try {
-		pbpJson = fs.statSync(pbpLocalPath);
-		shiftJson = fs.statSync(shiftLocalPath);
+		fs.statSync(pbpLocalPath);
+		fs.statSync(shiftLocalPath);
 	} catch (e) {
 		isUseLocalFiles = false;
+	}
+
+	// Respect user argument to always download input files
+	if (isAlwaysDownloadInputFiles) {
+		isUseLocalFiles = false;
+	}
+
+	if (isUseLocalFiles) {
+		console.log("Game " + gId + ": Using local pbp and shift json files");
+		pbpJson = JSON.parse(fs.readFileSync(pbpLocalPath));
+		shiftJson = JSON.parse(fs.readFileSync(shiftLocalPath));
+		processData(gId, pbpJson, shiftJson);
+	} else {
+
 		console.log("Game " + gId + ": Downloading pbp and shift json files");
 
 		// Download pbp json
@@ -97,13 +120,6 @@ gameIds.forEach(function(gId) {
 				console.log("Game " + gId + ": Unable to get shift json: " + error);
 			}
 		});
-	}
-
-	if (isUseLocalFiles) {
-		console.log("Game " + gId + ": Using local pbp and shift json files");
-		pbpJson = JSON.parse(fs.readFileSync(pbpLocalPath));
-		shiftJson = JSON.parse(fs.readFileSync(shiftLocalPath));
-		processData(gId, pbpJson, shiftJson);
 	}
 });
 
@@ -606,9 +622,86 @@ function processData(gId, pbpJson, shiftJson) {
 
 	//
 	//
-	// TODO: Write data to output files
+	// Write data to output files
 	//
 	//
+
+	// Write csv header
+	var result = "season,date,gameId,team,playerId,strengthSit,scoreSit";
+	recordedStats.forEach(function(st) {
+		result += "," + st;
+	});
+	result += "\n";
+
+	// Write team stats
+	for (key in teamData) {
+		recordedStrengthSits.forEach(function(strSit) {
+			recordedScoreSits.forEach(function(scSit) {
+
+				// If all stats=0 for the given strSit and scSit, don't output this line
+				var isEmpty = true;
+				recordedStats.forEach(function(st) {
+					if (teamData[key][strSit][scSit][st] !== 0) {
+						isEmpty = false;
+					}
+				});
+
+				if (!isEmpty) {
+
+					// Create csv line
+					var line = season + ","
+						+ gameDate + ","
+						+ gId + ","
+						+ teamData[key]["tricode"] + ","
+						+ "0" + ","
+						+ strSit + ","
+						+ scSit;
+					recordedStats.forEach(function(st) {
+						line += "," + teamData[key][strSit][scSit][st]
+					});
+					line += "\n";
+
+					// Add line to result
+					result += line;
+				}
+			});
+		});
+	}
+
+	// Write player stats
+	for (key in playerData) {
+		recordedStrengthSits.forEach(function(strSit) {
+			recordedScoreSits.forEach(function(scSit) {
+
+				// If all stats=0 for the given strSit and scSit, don't output this line
+				var isEmpty = true;
+				recordedStats.forEach(function(st) {
+					if (playerData[key][strSit][scSit][st] !== 0) {
+						isEmpty = false;
+					}
+				});
+
+				if (!isEmpty) {
+					var line = season + ","
+						+ gameDate + ","
+						+ gId + ","
+						+ playerData[key]["team"] + ","
+						+ key + ","
+						+ strSit + ","
+						+ scSit;
+					recordedStats.forEach(function(st) {
+						line += "," + playerData[key][strSit][scSit][st]
+					});
+					line += "\n";
+
+					// Add line to result
+					result += line;
+				}
+			});
+		});
+	}
+
+	saveFile("data/" + season + "/output/" + (season * 1000000 + gId) + "-game_stats.csv", result);
 
 	//
 	//
