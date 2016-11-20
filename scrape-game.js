@@ -9,10 +9,21 @@
 // - If a local file is already found, delete the game from the database before inserting new records
 // - Handle exceptions like the Winter Classic and inaccurate penalty information
 
+
+var fs = require("fs");
+var request = require("request");
+
 // Parse and store arguments
 var season = parseInt(process.argv[2]);
-var startGameId = parseInt(process.argv[3]);
-var endGameId = parseInt(process.argv[4]);
+var startAndEndGameIds = process.argv[3];
+var startGameId;
+var endGameId;
+if (startAndEndGameIds.indexOf("-") >= 0) {
+	startGameId = parseInt(startAndEndGameIds.substring(0, startAndEndGameIds.indexOf("-")));
+	endGameId = parseInt(startAndEndGameIds.substring(startAndEndGameIds.indexOf("-") + 1));
+} else {
+	startGameId = parseInt(startAndEndGameIds);
+}
 
 // Validate arguments
 if (!season || season < 2016) {
@@ -50,40 +61,51 @@ gameIds.forEach(function(gId) {
 	var pbpJson;
 	var shiftJson;
 
-	// Load pbp and shift jsons
-	var request = require("request");
+	// Download pbp and shift jsons
 	var pbpJsonUrl = "https://statsapi.web.nhl.com/api/v1/game/" + urlId  + "/feed/live";
 	var shiftJsonUrl = "http://www.nhl.com/stats/rest/shiftcharts?cayenneExp=gameId=" + urlId;
 
-	// Only start processing after both pbp and shift jsons have been downloaded
-	var downloadedFiles = 0;
+	var pbpLocalPath = "data/" + season + "/input/" + urlId + "-pbp.json";
+	var shiftLocalPath = "data/" + season + "/input/" + urlId + "-shifts.json";
 
-	// Download pbp json
-	request(pbpJsonUrl, function (error, response, body) {
-		if (!error && response.statusCode == 200) {
-			pbpJson = JSON.parse(body);
-			downloadedFiles++;
-			if (downloadedFiles === 2) {
-				processData(gId, pbpJson, shiftJson);
-			}
-		} else {
-			console.log("Unable to get pbp json: " + error);
-		}
-	});
+	// Try to load local pbp and shift input files - if they don't exist, download them
+	var isUseLocalFiles = true;
+	try {
+		pbpJson = fs.statSync(pbpLocalPath);
+		shiftJson = fs.statSync(shiftLocalPath);
+	} catch (e) {
+		isUseLocalFiles = false;
+		console.log("Downloading pbp and shift json files");
 
-	// Download shift json
-	request(shiftJsonUrl, function (error, response, body) {
-		if (!error && response.statusCode == 200) {
-			shiftJson = JSON.parse(body);
-			shiftJson = shiftJson["data"];
-			downloadedFiles++;
-			if (downloadedFiles === 2) {
+		// Download pbp json
+		request(pbpJsonUrl, function (error, response, body) {
+			if (!error && response.statusCode == 200) {
+				pbpJson = JSON.parse(body);
+				saveFile(pbpLocalPath, body);
 				processData(gId, pbpJson, shiftJson);
+			} else {
+				console.log("Unable to get pbp json: " + error);
 			}
-		} else {
-			console.log("Unable to get shift json: " + error);
-		}
-	});
+		});
+
+		// Download shift json
+		request(shiftJsonUrl, function (error, response, body) {
+			if (!error && response.statusCode == 200) {
+				shiftJson = JSON.parse(body);
+				saveFile(shiftLocalPath, body);
+				processData(gId, pbpJson, shiftJson);
+			} else {
+				console.log("Unable to get shift json: " + error);
+			}
+		});
+	}
+
+	if (isUseLocalFiles) {
+		console.log("Using local pbp and shift json files");
+		pbpJson = JSON.parse(fs.readFileSync(pbpLocalPath));
+		shiftJson = JSON.parse(fs.readFileSync(shiftLocalPath));
+		processData(gId, pbpJson, shiftJson);
+	}
 });
 
 //
@@ -91,6 +113,13 @@ gameIds.forEach(function(gId) {
 //
 
 function processData(gId, pbpJson, shiftJson) {
+
+	// Only start processing when both pbp and shift jsons are loaded
+	if (!pbpJson || !shiftJson) {
+		console.log("Game " + gId + ": Waiting for both pbp and shift jsons to be loaded");
+		return;
+	}
+	console.log("Game " + gId + ": Processing pbp and shift jsons");
 
 	// Variables for output
 	var gameDate = 0;		// An int including date and time
@@ -323,6 +352,8 @@ function processData(gId, pbpJson, shiftJson) {
 	//
 	//
 
+	shiftJson = shiftJson["data"];
+
 	// Append shifts to the player objects in playerData
 	// shiftJson is an array of shift objects
 	// Also find the max period
@@ -461,7 +492,6 @@ function processData(gId, pbpJson, shiftJson) {
 			});
 		});
 
-		console.log(intervals);
 		//
 		// TODO: Append on-ice players for events
 		// TODO: For penalty shots, update the on-ice players so that only the shooter and goalie are on the ice
@@ -486,4 +516,14 @@ function toSecs(timeString) {
 	var mm = +timeString.substring(0, timeString.indexOf(":"));
 	var ss = +timeString.substring(timeString.indexOf(":") + 1);
 	return 60 * mm + ss;
+}
+
+// Save file to disk
+function saveFile(path, contents) {
+	fs.writeFile(path, contents, function(err) {
+		if (err) {
+			 return console.log(err);
+		}
+	}); 
+	return;
 }
