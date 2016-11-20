@@ -126,7 +126,7 @@ function processData(gId, pbpJson, shiftJson) {
 	var eventData = [];		// An array of event objects
 	var shiftData = [];
 	var playerData = {};	// An associative array, using "ID" + playerId as keys. Contains player objects
-	var teamData = {		// An associate array, using "away"/"home" as keys. Contains team objects
+	var teamData = {		// An associative array, using "away"/"home" as keys. Contains team objects
 		away: {},
 		home: {}
 	};
@@ -277,7 +277,7 @@ function processData(gId, pbpJson, shiftJson) {
 		// Record players and their roles
 		// For goals, the json simply lists "assist" for both assisters - enhance this to "assist1" and "assist2"
 		if (ev.hasOwnProperty("players")) {
-			var evRoles = [];
+			newEv["roles"] = [];
 			ev["players"].forEach(function(p) {
 				var pId = p["player"]["id"];
 				var role = p["playerType"].toLowerCase();
@@ -289,7 +289,7 @@ function processData(gId, pbpJson, shiftJson) {
 						role = "assist2";
 					}
 				}
-				evRoles.push({
+				newEv["roles"].push({
 					player: pId,
 					role: role
 				});
@@ -310,13 +310,12 @@ function processData(gId, pbpJson, shiftJson) {
 
 		// Record the home and away scores when the event occurred
 		// For goals, the json includes the goal itself in the score situation, but it's more accurate to say that the first goal was scored when it was 0-0
-		newEv["aScore"] = ev["about"]["goals"]["away"];
-		newEv["hScore"] = ev["about"]["goals"]["home"];
+		newEv["score"] = [ev["about"]["goals"]["away"], ev["about"]["goals"]["home"]];
 		if (type === "goal") {
 			if (newEv["venue"] === "away") {
-				newEv["aScore"]--;
+				newEv["score"][0]--;
 			} else if (newEv["venue"] === "home") {
-				newEv["hScore"]--;
+				newEv["score"][1]--;
 			}
 		}
 
@@ -389,9 +388,6 @@ function processData(gId, pbpJson, shiftJson) {
 				end: t + 1,
 				goalies: [[], []],
 				skaters: [[], []],
-				onIce: [[], []],
-				onIceStarting: [[], []],
-				onIceEnding: [[], []],
 				strengthSits: ["", ""],
 				score: [0, 0],
 				scoreSits: ["", ""]
@@ -424,21 +420,10 @@ function processData(gId, pbpJson, shiftJson) {
 
 		// Record strength situation during each interval
 		intervals.forEach(function(interval) {
-			if (interval["goalies"][0].length < 1 || interval["goalies"][1].length < 1) {
-				interval["strengthSits"] = ["other", "other"];
-			} else if (interval["skaters"][0].length === 5 && interval["skaters"][1].length === 5) {
-				interval["strengthSits"] = ["ev5", "ev5"];
-			} else if (interval["skaters"][0].length > interval["skaters"][1].length
-				&& interval["skaters"][0].length <= 6
-				&& interval["skaters"][1].length >= 3) {
-				interval["strengthSits"] = ["pp", "sh"];
-			} else if (interval["skaters"][1].length > interval["skaters"][0].length
-				&& interval["skaters"][1].length <= 6
-				&& interval["skaters"][0].length >= 3) {
-				interval["strengthSits"] = ["sh", "pp"];
-			} else {
-				interval["strengthSits"] = ["other", "other"];
-			}
+			interval["strengthSits"] = getStrengthSits({
+				goalieCounts: [interval["goalies"][0].length, interval["goalies"][1].length],
+				skaterCounts: [interval["skaters"][0].length, interval["skaters"][1].length]
+			});
 		});
 
 		// For each interval, record the score
@@ -468,8 +453,7 @@ function processData(gId, pbpJson, shiftJson) {
 
 		// Record each team's score situation for each interval
 		intervals.forEach(function(interval) {
-			interval["scoreSits"][0] = (Math.max(-3, Math.min(3, interval["score"][0] - interval["score"][1]))).toString();
-			interval["scoreSits"][1] = (Math.max(-3, Math.min(3, interval["score"][1] - interval["score"][0]))).toString();
+			interval["scoreSits"] = getScoreSits(interval["score"][0], interval["score"][1]);
 		});
 
 		//
@@ -525,10 +509,100 @@ function processData(gId, pbpJson, shiftJson) {
 
 	} // Done looping through a game's periods
 
+	//
+	// For each event, increment player and team stats
+	//
 
-	//
-	// TODO: For each event, increment player and team stats
-	//
+	eventData.forEach(function(ev) {
+		
+		// Get score and strength situations
+		var scoreSits = getScoreSits(ev["score"][0], ev["score"][1]);
+		var strengthSits = getStrengthSits({
+			goalieCounts: [ev["goalies"][0].length, ev["goalies"][1].length],
+			skaterCounts: [ev["skaters"][0].length, ev["skaters"][1].length]
+		});
+
+		// Update strengthSits for penalty shots
+		if (ev["description"].indexOf("{penalty_shot}") > 0) {
+			strengthSits = ["penShot", "penShot"];
+		}
+
+		// Increment individual stats
+		ev["roles"].forEach(function(r) {
+			var iStat = [];
+			if (r["role"] === "winner") {
+				iStat = ["foWon"];
+			} else if (r["role"] === "loser") {
+				iStat = ["foLost"];
+			} else if (r["role"] === "blocker") {
+				iStat = ["blocked"];
+			} else if (r["role"] === "scorer") {
+				iStat = ["ig", "is"];
+			} else if (r["role"] === "assist1") {
+				iStat = ["ia1"];
+			} else if (r["role"] === "assist2") {
+				iStat = ["ia2"];
+			} else if (r["role"] === "penaltyon") {
+				iStat = ["penTaken"];
+			} else if (r["role"] === "drewby") {
+				iStat = ["penDrawn"];
+			} else if (r["role"] === "shooter") {
+				if (ev["type"] === "shot") {
+					iStat = ["is"];
+				} else if (ev["type"] === "blocked_shot") {
+					iStat = ["ibs"];
+				} else if (ev["type"] === "missed_shot") {
+					iStat = ["ims"];
+				}
+			}
+			var playerVenueIdx = 0;
+			if (r["player"]["venue"] === "home") {
+				playerVenueIdx = 1;
+			}
+			iStat.forEach(function(is) {
+				playerData[r["player"].toString()][strengthSits[playerVenueIdx]][scoreSits[playerVenueIdx]][is]++;
+			});
+		});
+
+		// Increment team and on-ice stats
+		["away", "home"].forEach(function(v, vIdx) {
+
+			var suffix = ev["venue"] === v ? "f" : "a";
+			var penSuffix = ev["venue"] === v ? "Taken" : "Drawn";
+			var foSuffix = ev["venue"] === v ? "Won" : "Lost";
+
+			if (ev["type"] === "goal") {
+				teamData[v][strengthSits[vIdx]][scoreSits[vIdx]]["g" + suffix]++;
+				teamData[v][strengthSits[vIdx]][scoreSits[vIdx]]["s" + suffix]++;
+				incrementOnIceStats(playerData, ev["skaters"][vIdx], ev["goalies"][vIdx], strengthSits[vIdx], scoreSits[vIdx], "g" + suffix, 1);
+				incrementOnIceStats(playerData, ev["skaters"][vIdx], ev["goalies"][vIdx], strengthSits[vIdx], scoreSits[vIdx], "s" + suffix, 1);
+			} else if (ev["type"] === "shot") {
+				teamData[v][strengthSits[vIdx]][scoreSits[vIdx]]["s" + suffix]++;
+				incrementOnIceStats(playerData, ev["skaters"][vIdx], ev["goalies"][vIdx], strengthSits[vIdx], scoreSits[vIdx], "s" + suffix, 1);
+			} else if (ev["type"] === "blocked_shot") {
+				teamData[v][strengthSits[vIdx]][scoreSits[vIdx]]["bs" + suffix]++;
+				incrementOnIceStats(playerData, ev["skaters"][vIdx], ev["goalies"][vIdx], strengthSits[vIdx], scoreSits[vIdx], "bs" + suffix, 1);
+			} else if (ev["type"] === "missed_shot") {
+				teamData[v][strengthSits[vIdx]][scoreSits[vIdx]]["ms" + suffix]++;
+				incrementOnIceStats(playerData, ev["skaters"][vIdx], ev["goalies"][vIdx], strengthSits[vIdx], scoreSits[vIdx], "ms" + suffix, 1);
+			} else if (ev["type"] === "faceoff") {
+				// Increment zone faceoffs
+				var zone = ev["hZone"];
+				if (v === "away") {
+					if (zone === "d") {
+						zone = "o";
+					} else if (zone === "o") {
+						zone = "d";
+					}
+				}
+				teamData[v][strengthSits[vIdx]][scoreSits[vIdx]][zone + "fo"]++;
+				teamData[v][strengthSits[vIdx]][scoreSits[vIdx]]["fo" + foSuffix]++;
+				incrementOnIceStats(playerData, ev["skaters"][vIdx], ev["goalies"][vIdx], strengthSits[vIdx], scoreSits[vIdx], zone + "fo", 1);
+			} else if (ev["type"] === "penalty") {
+				teamData[v][strengthSits[vIdx]][scoreSits[vIdx]]["pen" + penSuffix]++;
+			}
+		});
+	});
 
 	//
 	//
@@ -541,7 +615,6 @@ function processData(gId, pbpJson, shiftJson) {
 	// TODO: Load files into database
 	//
 	//
-
 }
 
 // Convert mm:ss to seconds
@@ -559,4 +632,40 @@ function saveFile(path, contents) {
 		}
 	}); 
 	return;
+}
+
+// Converts away and home scores into [awayScoreSit, homeScoreSit]
+function getScoreSits(aScore, hScore) {
+	var scoreSits = [];
+	scoreSits.push(Math.max(-3, Math.min(3, aScore - hScore))).toString();
+	scoreSits.push(Math.max(-3, Math.min(3, hScore - aScore))).toString();
+	return scoreSits;
+}
+
+// Converts away and home goalie/skater counts into [awayStrengthSit, homeStrengthSit]
+// countObject: { goalieCounts: [1, 1], skaterCounts: [5, 5] }
+function getStrengthSits(countObject) {
+	if (countObject["goalieCounts"][0] < 1 || countObject["goalieCounts"][1] < 1) {
+		return ["other", "other"];
+	} else if (countObject["skaterCounts"][0] === 5 && countObject["skaterCounts"][1] === 5) {
+		return ["ev5", "ev5"];
+	} else if (countObject["skaterCounts"][0] > countObject["skaterCounts"][1]
+		&& countObject["skaterCounts"][0] <= 6
+		&& countObject["skaterCounts"][1] >= 3) {
+		return ["pp", "sh"];
+	} else if (countObject["skaterCounts"][1] > countObject["skaterCounts"][0]
+		&& countObject["skaterCounts"][1] <= 6
+		&& countObject["skaterCounts"][0] >= 3) {
+		return ["sh", "pp"];
+	} else {
+		return ["other", "other"];
+	}
+}
+
+// Given a list of skater and goalie playerIds, increment the specified stat by the specified amount
+function incrementOnIceStats(playerData, skaters, goalies, strengthSit, scoreSit, stat, amount) {
+	var playersToUpdate = skaters.concat(goalies);
+	playersToUpdate.forEach(function(pId) {
+		playerData[pId.toString()][strengthSit][scoreSit][stat] += amount;
+	});
 }
