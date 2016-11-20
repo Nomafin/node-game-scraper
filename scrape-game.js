@@ -321,36 +321,35 @@ function processData(gId, pbpJson, shiftJson) {
 		}
 	});
 
-	//
-	// Process shifts one period at a time
-	//
-
+	// Process shifts, one period at a time
 	for (var prd = 1; prd <= maxPeriod; prd++) {
 
-		// Record the number of home and away skaters on-ice at each second of the period
+		// Set the period duration
 		var prdDur = 20 * 60;
 		if (!isPlayoffs && prd === 4) {
 			prdDur = 5 * 60;
 		}
 
-		// Initialize array to store information about each second
+		// Initialize array to store information about each 1-second interval
 		// A 4s period will have 4 elements: 0:00-0:01, 0:01-0:02, 0:02-0:03, 0:03-0:04
 		// Each element represents a 1s slot: e.g., idx 0 counts the number of players on-ice between 0:00-0:01
-		var seconds = [];
+		var intervals = [];
 		for (var t = 0; t < prdDur; t++) {
 			// Use idx0 for away; idx1 for away
-			var second = {
+			var interval = {
+				start: t,
+				end: t + 1,
 				goalies: [[], []],
 				skaters: [[], []],
 				strengthSits: ["", ""],
 				score: [0, 0],
 				scoreSits: ["", ""],
 			};
-			seconds.push(second);
+			intervals.push(interval);
 		}
 
-		// Record players on ice at each second
-		// If a shift starts and ends at [0, 2], then add the player to 0:00-0:01 (idx0), 0:01-0:02 (idx1)
+		// Record players on ice at each interval
+		// If a shift has start = 0 and end = 2, then add the player to 0:00-0:01, 0:01-0:02, but not 0:02-0:03
 		for (var key in playerData) {
 
 			// Check if the property is an actual property of the players object, and doesn't come from the prototype
@@ -358,72 +357,73 @@ function processData(gId, pbpJson, shiftJson) {
 				continue;
 			}
 
+			// Get player's venue, position, and shifts in the period
 			var venueIdx = playerData[key]["venue"] === "away" ? 0 : 1;
+			var positionToUpdate = playerData[key]["position"] === "g" ? "goalies" : "skaters";
 			var shiftsInPrd = playerData[key]["shifts"].filter(function(d) { return d["period"] === prd; });
+
+			// Loop through each of the player's shifts and add them to the corresponding intervals
 			shiftsInPrd.forEach(function(sh) {
-				for (var t = sh["start"]; t < sh["end"]; t++) {
-					if (playerData[key]["position"] === "g") {
-						seconds[t]["goalies"][venueIdx].push(playerData[key]["id"]);
-					} else {
-						seconds[t]["skaters"][venueIdx].push(playerData[key]["id"]);
-					}
-				}
+				var intervalsToUpdate = intervals.filter(function(d) { return d["start"] >= sh["start"] && d["end"] <= sh["end"]; });
+				intervalsToUpdate.forEach(function(interval) {
+					interval[positionToUpdate][venueIdx].push(playerData[key]["id"]);
+				});
 			});
 		}
 
-		// Record strength situation at each second
-		seconds.forEach(function(sec) {
-			if (sec["goalies"][0].length < 1 || sec["goalies"][1].length < 1) {
-				sec["strengthSits"] = ["other", "other"];
-			} else if (sec["skaters"][0].length === 5 && sec["skaters"][1].length === 5) {
-				sec["strengthSits"] = ["ev5", "ev5"];
-			} else if (sec["skaters"][0].length > sec["skaters"][1].length
-				&& sec["skaters"][0].length <= 6
-				&& sec["skaters"][1].length >= 3) {
-				sec["strengthSits"] = ["pp", "sh"];
-			} else if (sec["skaters"][1].length > sec["skaters"][0].length
-				&& sec["skaters"][1].length <= 6
-				&& sec["skaters"][0].length >= 3) {
-				sec["strengthSits"] = ["sh", "pp"];
+		// Record strength situation at each interval
+		intervals.forEach(function(interval) {
+			if (interval["goalies"][0].length < 1 || interval["goalies"][1].length < 1) {
+				interval["strengthSits"] = ["other", "other"];
+			} else if (interval["skaters"][0].length === 5 && interval["skaters"][1].length === 5) {
+				interval["strengthSits"] = ["ev5", "ev5"];
+			} else if (interval["skaters"][0].length > interval["skaters"][1].length
+				&& interval["skaters"][0].length <= 6
+				&& interval["skaters"][1].length >= 3) {
+				interval["strengthSits"] = ["pp", "sh"];
+			} else if (interval["skaters"][1].length > interval["skaters"][0].length
+				&& interval["skaters"][1].length <= 6
+				&& interval["skaters"][0].length >= 3) {
+				interval["strengthSits"] = ["sh", "pp"];
 			} else {
-				sec["strengthSits"] = ["other", "other"];
+				interval["strengthSits"] = ["other", "other"];
 			}
 		});
 
-		// For each second, record the score
-		// For goals scored in previous period, add the goal to every second of the current period
+		// For each interval, record the score
+		// For goals scored in previous period, add the goal to every interval of the current period
 		// For goals in the current period:
-		// 		If goal time = 0: increment 0:00 - 0:01 (idx0) and onwards
-		// 		If goal time = 1: don't increment 0:00 - 0:01, but increment 0:01 - 0:02 (idx1) and onwards
-		// 		If goal time = 2: don't increment 0:01 - 0:02, but increment 0:02 - 0:03 (idx2) and onwards
-		// 		If goal time = 3: don't increment 0:02 - 0:03, but increment 0:03 - 0:04 (idx3) and onwards
-		// 		If goal time = 4 and the period is 4s long: don't increment 0:03 - 0:04, and there are no subsequent slots to increment
-
+		// 		If goal time = 0: increment 0:00-0:01 and onwards
+		// 		If goal time = 1: don't increment 0:00-0:01, but increment 0:01-0:02 and onwards
+		// 		If goal time = 2: don't increment 0:01-0:02, but increment 0:02-0:03 and onwards
+		// 		If goal time = 3: don't increment 0:02-0:03, but increment 0:03-0:04 and onwards
+		// 		If goal time = 4 and the period is 4s long: don't increment 0:03-0:04, and there are no subsequent intervals to increment
 		var goals = eventData.filter(function(d) { return d["type"] === "goal" && d["period"] <= prd; });
 		goals.forEach(function(g) {
 
 			var venueIdx = g["venue"] === "away" ? 0 : 1;
 			
 			if (g["period"] < prd) {
-				seconds.forEach(function(sec) {
-					sec["score"][venueIdx]++;
+				intervals.forEach(function(interval) {
+					interval["score"][venueIdx]++;
 				});
 			} else {
-				var secsToIncrement = seconds.filter(function(sec, idx) { return idx >= g["time"]; });
-				secsToIncrement.forEach(function(sec) {
-					sec["score"][venueIdx]++;
+				var intervalsToIncrement = intervals.filter(function(interval) { return interval["start"] >= g["time"]; });
+				intervalsToIncrement.forEach(function(interval) {
+					interval["score"][venueIdx]++;
 				});
 			}
 		});
 
-		// Record each team's score situation for each second
-		seconds.forEach(function(sec) {
-			sec["scoreSits"][0] = (Math.max(-3, Math.min(3, sec["score"][0] - sec["score"][1]))).toString();
-			sec["scoreSits"][1] = (Math.max(-3, Math.min(3, sec["score"][1] - sec["score"][0]))).toString();
+		// Record each team's score situation for each interval
+		intervals.forEach(function(interval) {
+			interval["scoreSits"][0] = (Math.max(-3, Math.min(3, interval["score"][0] - interval["score"][1]))).toString();
+			interval["scoreSits"][1] = (Math.max(-3, Math.min(3, interval["score"][1] - interval["score"][0]))).toString();
 		});
-		
-		console.log(seconds);
-	}
+
+		console.log(intervals);
+
+	} // Done looping through a game's periods
 }
 
 // Convert mm:ss to seconds
