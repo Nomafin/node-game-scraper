@@ -9,7 +9,6 @@
 // - If a local file is already found, delete the game from the database before inserting new records
 // - Handle exceptions like the Winter Classic and inaccurate penalty information
 
-
 var fs = require("fs");
 var request = require("request");
 
@@ -75,7 +74,7 @@ gameIds.forEach(function(gId) {
 		shiftJson = fs.statSync(shiftLocalPath);
 	} catch (e) {
 		isUseLocalFiles = false;
-		console.log("Downloading pbp and shift json files");
+		console.log("Game " + gId + ": Downloading pbp and shift json files");
 
 		// Download pbp json
 		request(pbpJsonUrl, function (error, response, body) {
@@ -84,7 +83,7 @@ gameIds.forEach(function(gId) {
 				saveFile(pbpLocalPath, body);
 				processData(gId, pbpJson, shiftJson);
 			} else {
-				console.log("Unable to get pbp json: " + error);
+				console.log("Game " + gId + ": Unable to get pbp json: " + error);
 			}
 		});
 
@@ -95,13 +94,13 @@ gameIds.forEach(function(gId) {
 				saveFile(shiftLocalPath, body);
 				processData(gId, pbpJson, shiftJson);
 			} else {
-				console.log("Unable to get shift json: " + error);
+				console.log("Game " + gId + ": Unable to get shift json: " + error);
 			}
 		});
 	}
 
 	if (isUseLocalFiles) {
-		console.log("Using local pbp and shift json files");
+		console.log("Game " + gId + ": Using local pbp and shift json files");
 		pbpJson = JSON.parse(fs.readFileSync(pbpLocalPath));
 		shiftJson = JSON.parse(fs.readFileSync(shiftLocalPath));
 		processData(gId, pbpJson, shiftJson);
@@ -390,9 +389,12 @@ function processData(gId, pbpJson, shiftJson) {
 				end: t + 1,
 				goalies: [[], []],
 				skaters: [[], []],
+				onIce: [[], []],
+				onIceStarting: [[], []],
+				onIceEnding: [[], []],
 				strengthSits: ["", ""],
 				score: [0, 0],
-				scoreSits: ["", ""],
+				scoreSits: ["", ""]
 			};
 			intervals.push(interval);
 		}
@@ -493,22 +495,53 @@ function processData(gId, pbpJson, shiftJson) {
 		});
 
 		//
-		// TODO: Append on-ice players for events
-		// TODO: For penalty shots, update the on-ice players so that only the shooter and goalie are on the ice
-		// To do this for NON-PENALTY SHOTS
-		//		1. Get the event's time
-		//		2. Get the corresponding interval object
-		//		3. Loop through the interval's skaters and goalies
-		// To do this for penalty shots (see Python code):
-		//		1. Get the shooter from the event data
-		//		2. Get the goalie from the event data; if not listed in the event data, refer to the corresponding interval object
+		// Append on-ice players for each event
 		//
 
-		//
-		// TODO: For each event, increment player and team stats
-		//
+		var evsInPrd = eventData.filter(function(d) { return d["period"] === prd; });
+		evsInPrd.forEach(function(ev) {
+
+			// If a faceoff occurred at 0:05, then attribute it to all players on ice during interval 0:05-0:06
+			// If a shot or penalty occurred at 0:05, then attribute it to all players on ice during interval 0:04-0:05
+			var interval;
+			if (ev["type"] === "faceoff") {
+				interval = intervals.find(function(d) { return d["start"] === ev["time"]; });
+			} else {
+				interval = intervals.find(function(d) { return d["end"] === ev["time"]; });
+			}
+
+			// Record on-ice skaters and goalies
+			ev["skaters"] = [[], []];
+			ev["goalies"] = [[], []];
+			["away", "home"].forEach(function(venue, venueIdx) {
+				interval["skaters"][venueIdx].forEach(function(pId) {
+					ev["skaters"][venueIdx].push(pId);
+				});
+				interval["goalies"][venueIdx].forEach(function(pId) {
+					ev["goalies"][venueIdx].push(pId);
+				});
+			});
+		});
 
 	} // Done looping through a game's periods
+
+
+	//
+	// TODO: For each event, increment player and team stats
+	//
+
+	//
+	//
+	// TODO: Write data to output files
+	//
+	//
+
+	//
+	//
+	// TODO: Load files into database
+	//
+	//
+
 }
 
 // Convert mm:ss to seconds
