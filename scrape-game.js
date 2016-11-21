@@ -320,7 +320,7 @@ function processData(gId, pbpJson, shiftJson) {
 			// For blocked shots, the json lists the blocking team as the team - we want the shooting team instead
 			if (type === "blocked_shot") {
 				newEv["team"] = newEv["team"] === teamData["away"]["tricode"] ? teamData["home"]["tricode"] : teamData["away"]["tricode"];
-				newEv["venue"] = newEv["team"] === teamData["away"]["tricode"] ? "home" : "away";
+				newEv["venue"] = newEv["team"] === teamData["away"]["tricode"] ? "away" : "home";
 			}
 		}
 
