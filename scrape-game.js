@@ -240,8 +240,12 @@ function processData(gId, pbpJson, shiftJson) {
 	eventsObject.forEach(function(ev) {
 
 		// Skip irrelevant events and skip shootout events
+		// Also store the max period
 		var type = ev["result"]["eventTypeId"].toLowerCase();
 		var period = ev["about"]["period"];
+		if (period > maxPeriod) {
+			maxPeriod = period;
+		}
 		if (recordedEvents.indexOf(type) < 0) {
 			return;
 		} else if (!isPlayoffs && period > 4) {
@@ -374,11 +378,8 @@ function processData(gId, pbpJson, shiftJson) {
 	//
 	//
 
-	shiftJson = shiftJson["data"];
-
 	// Append shifts to the player objects in playerData
-	// shiftJson is an array of shift objects
-	// Also find the max period
+	shiftJson = shiftJson["data"];
 	shiftJson.forEach(function(sh) {
 		if ((sh["period"] <= 4 && !isPlayoffs) || isPlayoffs) {
 			playerData[sh["playerId"].toString()]["shifts"].push({
@@ -386,9 +387,6 @@ function processData(gId, pbpJson, shiftJson) {
 				start: toSecs(sh["startTime"]),
 				end: toSecs(sh["endTime"])
 			});
-			if (sh["period"] > maxPeriod) {
-				maxPeriod = sh["period"];
-			}
 		}
 	});
 
@@ -626,7 +624,7 @@ function processData(gId, pbpJson, shiftJson) {
 	//
 
 	// Write csv header
-	var result = "season,date,gameId,team,playerId,strengthSit,scoreSit";
+	var result = "season,gameId,team,playerId,strengthSit,scoreSit";
 	recordedStats.forEach(function(st) {
 		result += "," + st;
 	});
@@ -649,7 +647,6 @@ function processData(gId, pbpJson, shiftJson) {
 
 					// Create csv line
 					var line = season + ","
-						+ gameDate + ","
 						+ gId + ","
 						+ teamData[key]["tricode"] + ","
 						+ "0" + ","
@@ -682,7 +679,6 @@ function processData(gId, pbpJson, shiftJson) {
 
 				if (!isEmpty) {
 					var line = season + ","
-						+ gameDate + ","
 						+ gId + ","
 						+ playerData[key]["team"] + ","
 						+ key + ","
@@ -704,31 +700,50 @@ function processData(gId, pbpJson, shiftJson) {
 
 	//
 	//
-	// Load files into database
+	// Load data into database
 	//
 	//
 
+	// Connect to database
 	var connection = mysql.createConnection({
 		host: config.db.host,
 		user: config.db.user,
 		password: config.db.pass,
 		database: config.db.db
 	});
-
 	connection.connect();
 
-	// Delete existing records if they have the same season and gameId as the new records
+	// Delete existing game_stats records if they have the same season and gameId as the new records
 	var queryString = "DELETE FROM game_events"
 		+ " WHERE season=" + season + " AND gameId=" + gId;
 	connection.query(queryString);
 
-	// Load new records into database
+	// Insert the game_stats records into database
 	var path = "data/" + season + "/output/" + (season * 1000000 + gId) + "-game_stats.csv";
 	var queryString = "LOAD DATA LOCAL INFILE '" + path + "'"
 		+ " REPLACE INTO TABLE game_stats"
 		+ " FIELDS TERMINATED BY ',' ENCLOSED BY '\"'"
 		+ " LINES TERMINATED BY '\\n'"
 		+ " IGNORE 1 LINES"
+	connection.query(queryString);
+
+	// Insert the game result into database
+	// Record the final score, including the shootout result
+	var queryString = "DELETE FROM game_results"
+		+ " WHERE season=" + season + " AND gameId=" + gId;
+	connection.query(queryString);
+
+	var finalScore = [pbpJson.liveData.linescore.teams.away.goals, pbpJson.liveData.linescore.teams.home.goals];
+	var queryString = "INSERT INTO game_results"
+		+ " VALUES ("
+			+ season + ","
+			+ gameDate + ","
+			+ gId + ","
+			+ "'" + teamData.away.tricode + "',"
+			+ "'" + teamData.home.tricode + "',"
+			+ finalScore[0] + ","
+			+ finalScore[1] + ","
+			+ maxPeriod + ")";
 	connection.query(queryString);
 
 	connection.end();
