@@ -10,6 +10,8 @@
 
 var fs = require("fs");
 var request = require("request");
+var mysql = require("mysql");
+var config = require("./config");
 
 // Parse and store season argument
 var season = parseInt(process.argv[2]);
@@ -698,13 +700,38 @@ function processData(gId, pbpJson, shiftJson) {
 		});
 	}
 
-	saveFile("data/" + season + "/output/" + (season * 1000000 + gId) + "-game_stats.csv", result);
+	saveFileSync("data/" + season + "/output/" + (season * 1000000 + gId) + "-game_stats.csv", result);
 
 	//
 	//
-	// TODO: Load files into database
+	// Load files into database
 	//
 	//
+
+	var connection = mysql.createConnection({
+		host: config.db.host,
+		user: config.db.user,
+		password: config.db.pass,
+		database: config.db.db
+	});
+
+	connection.connect();
+
+	// Delete existing records if they have the same season and gameId as the new records
+	var queryString = "DELETE FROM game_events"
+		+ " WHERE season=" + season + " AND gameId=" + gId;
+	connection.query(queryString);
+
+	// Load new records into database
+	var path = "data/" + season + "/output/" + (season * 1000000 + gId) + "-game_stats.csv";
+	var queryString = "LOAD DATA LOCAL INFILE '" + path + "'"
+		+ " REPLACE INTO TABLE game_stats"
+		+ " FIELDS TERMINATED BY ',' ENCLOSED BY '\"'"
+		+ " LINES TERMINATED BY '\\n'"
+		+ " IGNORE 1 LINES"
+	connection.query(queryString);
+
+	connection.end();
 }
 
 // Convert mm:ss to seconds
@@ -714,13 +741,19 @@ function toSecs(timeString) {
 	return 60 * mm + ss;
 }
 
-// Save file to disk
+// Asynchronously save file to disk
 function saveFile(path, contents) {
 	fs.writeFile(path, contents, function(err) {
 		if (err) {
 			 return console.log(err);
 		}
 	}); 
+	return;
+}
+
+// Synchronously save file to disk
+function saveFileSync(path, contents) {
+	fs.writeFileSync(path, contents);
 	return;
 }
 

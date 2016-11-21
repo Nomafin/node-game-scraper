@@ -1,0 +1,9 @@
+{
+	"README": "Populate this file and rename it to config.json",
+	"db": {
+		"host": "",
+		"user": "",
+		"pass": "",
+		"db": ""
+	}
+}
