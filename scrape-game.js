@@ -1,10 +1,10 @@
-// Usage: node scrape-game.js season startGameId [endGameId]
+// Usage: node scrape-game.js season startGameId[-endGameId] [download]
 // season: the year in which a season started. The 2016-2017 season would be specified as 2016
 // startGameId & endGameId: 5 digits long (e.g., 20243)
 // If endGameId is specified, all games between startGameId and endGameId (inclusive) are scraped
+// Add "download" to the command to always download new input files and overwrite any existing local files
 
 // TODO
-// - Only scrape game if it's final
 // - If a local file is already found, delete the game from the database before inserting new records
 // - Handle exceptions like the Winter Classic and inaccurate penalty information
 
@@ -135,6 +135,12 @@ function processData(gId, pbpJson, shiftJson) {
 		return;
 	}
 	console.log("Game " + gId + ": Processing pbp and shift jsons");
+
+	// Only process game results that are final
+	if (pbpJson.gameData.status.abstractGameState.toLowerCase() !== "final") {
+		console.log("Game " + gId + ": Results are not final");
+		return;
+	}
 
 	// Variables for output
 	var gameDate = 0;		// An int including date and time
