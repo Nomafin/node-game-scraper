@@ -478,18 +478,9 @@ function processData(gId, pbpJson, shiftJson) {
 
 		intervals.forEach(function(interval) {
 
-			// Loop through away and home teams
+			// Loop through away and home teams and increment team and player toi
 			["away", "home"].forEach(function(venue, venueIdx) {
-
-				// Increment players' toi
-				interval["skaters"][venueIdx].forEach(function(pId) {
-					playerData[pId][interval["strengthSits"][venueIdx]][interval["scoreSits"][venueIdx]]["toi"]++;
-				});
-				interval["goalies"][venueIdx].forEach(function(pId) {
-					playerData[pId][interval["strengthSits"][venueIdx]][interval["scoreSits"][venueIdx]]["toi"]++;
-				});
-
-				// Increment teams' toi
+				incrementOnIceStats(playerData, interval["skaters"][venueIdx], interval["goalies"][venueIdx], interval["strengthSits"][venueIdx], interval["scoreSits"][venueIdx], "toi", 1);
 				teamData[venue][interval["strengthSits"][venueIdx]][interval["scoreSits"][venueIdx]]["toi"]++;
 			});
 		});
@@ -572,7 +563,7 @@ function processData(gId, pbpJson, shiftJson) {
 				}
 			}
 			var playerVenueIdx = 0;
-			if (r["player"]["venue"] === "home") {
+			if (playerData[r["player"].toString()]["venue"] === "home") {
 				playerVenueIdx = 1;
 			}
 			iStat.forEach(function(is) {
