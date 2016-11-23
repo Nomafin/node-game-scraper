@@ -1,3 +1,5 @@
+"use strict"
+
 // Usage: node scrape-game.js season startGameId[-endGameId] [download]
 // season: the year in which a season started. The 2016-2017 season would be specified as 2016
 // startGameId & endGameId: 5 digits long (e.g., 20243)
@@ -251,7 +253,7 @@ function processData(gId, pbpJson, shiftJson) {
 		}
 
 		// Create object to store event information
-		newEv = {};
+		var newEv = {};
 		newEv["id"] = ev["about"]["eventIdx"];
 		newEv["period"] = period;
 		newEv["time"] = toSecs(ev["about"]["periodTime"]);
