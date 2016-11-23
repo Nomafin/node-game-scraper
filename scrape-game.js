@@ -5,7 +5,6 @@
 // Add "download" to the command to always download new input files and overwrite any existing local files
 
 // TODO
-// - If a local file is already found, delete the game from the database before inserting new records
 // - Handle exceptions like the Winter Classic and inaccurate penalty information
 
 var fs = require("fs");
@@ -60,6 +59,11 @@ if (endGameId) {
 	}
 }
 console.log("Games to scrape: " + gameIds);
+
+// Contexts and stats to record
+var recordedScoreSits = ["-3", "-2", "-1", "0", "1", "2", "3"];
+var recordedStrengthSits = ["ev5", "pp", "sh", "penShot", "other"];
+var recordedStats = ["toi", "ig", "is", "ibs", "ims", "ia1", "ia2", "blocked", "gf", "ga", "sf", "sa", "bsf", "bsa", "msf", "msa", "foWon", "foLost", "ofo", "dfo", "nfo", "penTaken", "penDrawn"];
 
 //
 // Loop through each gameId
@@ -148,17 +152,11 @@ function processData(gId, pbpJson, shiftJson) {
 	var gameDate = 0;		// An int including date and time
 	var maxPeriod = 0;
 	var eventData = [];		// An array of event objects
-	var shiftData = [];
-	var playerData = {};	// An associative array, using "ID" + playerId as keys. Contains player objects
-	var teamData = {		// An associative array, using "away"/"home" as keys. Contains team objects
+	var playerData = {};	// An associative array of objects, using playerId (as strings) as keys
+	var teamData = {		// An associative array of objects, using "away" and "home" as keys
 		away: {},
 		home: {}
 	};
-
-	// Contexts and stats to record
-	var recordedScoreSits = ["-3", "-2", "-1", "0", "1", "2", "3"];
-	var recordedStrengthSits = ["ev5", "pp", "sh", "penShot", "other"];
-	var recordedStats = ["toi", "ig", "is", "ibs", "ims", "ia1", "ia2", "blocked", "gf", "ga", "sf", "sa", "bsf", "bsa", "msf", "msa", "foWon", "foLost", "ofo", "dfo", "nfo", "penTaken", "penDrawn"];
 
 	// Get game date: convert 2016-11-17T00:30:00Z to 20161117003000
 	gameDate = pbpJson.gameData.datetime.dateTime;
@@ -188,13 +186,13 @@ function processData(gId, pbpJson, shiftJson) {
 	//
 	// Prepare player output
 	// Loop through the properties in pbpJson.gameData.players
-	// Each property is a playerId: "prop" is formatted as "ID" + playerId
 	//
 
 	var gameDataPlayersObject = pbpJson.gameData.players;
 	var boxScoreTeamsObject = pbpJson.liveData.boxscore.teams;
 	for (var prop in gameDataPlayersObject) {
 
+		// "prop" is formatted as "ID" + playerId
 		// Check if the property is an actual property of the players object, and doesn't come from the prototype
 		if (!gameDataPlayersObject.hasOwnProperty(prop)) {
 			continue;
@@ -235,17 +233,17 @@ function processData(gId, pbpJson, shiftJson) {
 	
 	var isPlayoffs = gId >= 30000;
 	var recordedEvents = ["goal", "shot", "missed_shot", "blocked_shot", "faceoff", "penalty"];
-
 	var eventsObject = pbpJson.liveData.plays.allPlays;
 	eventsObject.forEach(function(ev) {
 
-		// Skip irrelevant events and skip shootout events
-		// Also store the max period
-		var type = ev["result"]["eventTypeId"].toLowerCase();
+		// Store the max period
 		var period = ev["about"]["period"];
 		if (period > maxPeriod) {
 			maxPeriod = period;
 		}
+
+		// Skip irrelevant events and skip shootout events
+		var type = ev["result"]["eventTypeId"].toLowerCase();
 		if (recordedEvents.indexOf(type) < 0) {
 			return;
 		} else if (!isPlayoffs && period > 4) {
@@ -354,7 +352,7 @@ function processData(gId, pbpJson, shiftJson) {
 
 	// Flag penalty shots by appending {penalty_shot} to the description
 	// To find penalty shots, find penalties with severity "penalty shot", then get the next event
-	// Since eventData only contains faceoffs, penalties, and shots, we can treat the first shot after the penalty as the penalty shot
+	// Since eventData only contains faceoffs, penalties, and shots, treat the first shot after the penalty as the penalty shot
 	eventData.forEach(function(ev, i) {
 		if (ev["type"] === "penalty") {
 			if (ev["penSeverity"] === "penalty shot") {
@@ -378,7 +376,7 @@ function processData(gId, pbpJson, shiftJson) {
 	//
 	//
 
-	// Append shifts to the player objects in playerData
+	// Append shifts to the player objects in playerData - skip shootout shifts
 	shiftJson = shiftJson["data"];
 	shiftJson.forEach(function(sh) {
 		if ((sh["period"] <= 4 && !isPlayoffs) || isPlayoffs) {
@@ -401,7 +399,6 @@ function processData(gId, pbpJson, shiftJson) {
 
 		// Initialize array to store information about each 1-second interval
 		// A 4-second period will have 4 intervals: 0:00-0:01, 0:01-0:02, 0:02-0:03, 0:03-0:04
-		// E.g., the interval at idx0 counts the number of on-ice players during 0:00-0:01
 		var intervals = [];
 		for (var t = 0; t < prdDur; t++) {
 			// Use idx0 for away; idx1 for away
@@ -448,14 +445,12 @@ function processData(gId, pbpJson, shiftJson) {
 			});
 		});
 
-		// For each interval, record the score
 		// For goals scored in previous period, add the goal to every interval of the current period
 		// For goals in the current period:
 		// 		If goal time = 0: increment 0:00-0:01 and onwards
-		// 		If goal time = 1: don't increment 0:00-0:01, but increment 0:01-0:02 and onwards
-		// 		If goal time = 2: don't increment 0:01-0:02, but increment 0:02-0:03 and onwards
-		// 		If goal time = 3: don't increment 0:02-0:03, but increment 0:03-0:04 and onwards
-		// 		If goal time = 4 and the period is 4s long: don't increment 0:03-0:04, and there are no subsequent intervals to increment
+		// 		If goal time = 1: increment 0:01-0:02 and onwards
+		// 		If goal time = 2: increment 0:02-0:03 and onwards
+		// 		If goal time = 3 and the period is 3s long: there are no intervals to increment
 		var goals = eventData.filter(function(d) { return d["type"] === "goal" && d["period"] <= prd; });
 		goals.forEach(function(g) {
 
@@ -483,8 +478,6 @@ function processData(gId, pbpJson, shiftJson) {
 		//
 
 		intervals.forEach(function(interval) {
-
-			// Loop through away and home teams and increment team and player toi
 			["away", "home"].forEach(function(venue, venueIdx) {
 				incrementOnIceStats(playerData, interval["skaters"][venueIdx], interval["goalies"][venueIdx], interval["strengthSits"][venueIdx], interval["scoreSits"][venueIdx], "toi", 1);
 				teamData[venue][interval["strengthSits"][venueIdx]][interval["scoreSits"][venueIdx]]["toi"]++;
@@ -507,7 +500,7 @@ function processData(gId, pbpJson, shiftJson) {
 				interval = intervals.find(function(d) { return d["end"] === ev["time"]; });
 			}
 
-			// Record on-ice skaters and goalies
+			// Record on-ice skaters and goalies for event
 			ev["skaters"] = [[], []];
 			ev["goalies"] = [[], []];
 			["away", "home"].forEach(function(venue, venueIdx) {
@@ -519,7 +512,6 @@ function processData(gId, pbpJson, shiftJson) {
 				});
 			});
 		});
-
 	} // Done looping through a game's periods
 
 	//
@@ -636,16 +628,7 @@ function processData(gId, pbpJson, shiftJson) {
 			recordedScoreSits.forEach(function(scSit) {
 
 				// If all stats=0 for the given strSit and scSit, don't output this line
-				var isEmpty = true;
-				recordedStats.forEach(function(st) {
-					if (teamData[key][strSit][scSit][st] !== 0) {
-						isEmpty = false;
-					}
-				});
-
-				if (!isEmpty) {
-
-					// Create csv line
+				if (!isRowEmpty(teamData[key][strSit][scSit])) {
 					var line = season + ","
 						+ gId + ","
 						+ teamData[key]["tricode"] + ","
@@ -656,8 +639,6 @@ function processData(gId, pbpJson, shiftJson) {
 						line += "," + teamData[key][strSit][scSit][st]
 					});
 					line += "\n";
-
-					// Add line to result
 					result += line;
 				}
 			});
@@ -670,14 +651,7 @@ function processData(gId, pbpJson, shiftJson) {
 			recordedScoreSits.forEach(function(scSit) {
 
 				// If all stats=0 for the given strSit and scSit, don't output this line
-				var isEmpty = true;
-				recordedStats.forEach(function(st) {
-					if (playerData[key][strSit][scSit][st] !== 0) {
-						isEmpty = false;
-					}
-				});
-
-				if (!isEmpty) {
+				if (!isRowEmpty(playerData[key][strSit][scSit])) {
 					var line = season + ","
 						+ gId + ","
 						+ playerData[key]["team"] + ","
@@ -688,8 +662,6 @@ function processData(gId, pbpJson, shiftJson) {
 						line += "," + playerData[key][strSit][scSit][st]
 					});
 					line += "\n";
-
-					// Add line to result
 					result += line;
 				}
 			});
@@ -747,6 +719,19 @@ function processData(gId, pbpJson, shiftJson) {
 	connection.query(queryString);
 
 	connection.end();
+}
+
+// Check if all the stats in a row equal 0
+// row is teamData[key][strSit][scSit] for teamData
+// row is playerData[key][strSit][scSit] for playerData
+function isRowEmpty(row) {
+	var isEmpty = true;
+	recordedStats.forEach(function(st) {
+		if (row[st] !== 0) {
+			isEmpty = false;
+		}
+	});
+	return isEmpty;
 }
 
 // Convert mm:ss to seconds
