@@ -65,7 +65,7 @@ console.log("Games to scrape: " + gameIds);
 // Contexts and stats to record
 var recordedScoreSits = ["-3", "-2", "-1", "0", "1", "2", "3"];
 var recordedStrengthSits = ["ev5", "pp", "sh", "penShot", "other"];
-var recordedStats = ["toi", "ig", "is", "ibs", "ims", "ia1", "ia2", "blocked", "gf", "ga", "sf", "sa", "bsf", "bsa", "msf", "msa", "foWon", "foLost", "ofo", "dfo", "nfo", "penTaken", "penDrawn"];
+var recordedStats = ["toi", "ig", "is", "ibs", "ims", "ia1", "ia2", "blocked", "gf", "ga", "sf", "sa", "bsf", "bsa", "msf", "msa", "foWon", "foLost", "ofo", "dfo", "nfo", "penTaken", "penDrawn", "cfOff", "caOff"];
 
 //
 // Loop through each gameId
@@ -614,6 +614,23 @@ function processData(gId, pbpJson, shiftJson) {
 			}
 		});
 	});
+
+	//
+	// Increment off-ice stats
+	//
+
+	for (key in playerData) {
+		recordedStrengthSits.forEach(function(strSit) {
+			recordedScoreSits.forEach(function(scSit) {
+				var playerVenue = playerData[key]["venue"];
+				["f", "a"].forEach(function(suffix) {
+					var playerCorsi = playerData[key][strSit][scSit]["s" + suffix] + playerData[key][strSit][scSit]["ms" + suffix] + playerData[key][strSit][scSit]["bs" + suffix];
+					var teamCorsi = teamData[playerVenue][strSit][scSit]["s" + suffix] + teamData[playerVenue][strSit][scSit]["ms" + suffix] + teamData[playerVenue][strSit][scSit]["bs" + suffix]
+					playerData[key][strSit][scSit]["c" + suffix + "Off"] = teamCorsi - playerCorsi;
+				});
+			});
+		});
+	}
 
 	//
 	//
