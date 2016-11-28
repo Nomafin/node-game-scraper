@@ -7,11 +7,12 @@
 // Add "download" to the command to always download new input files and overwrite any existing local files
 
 // TODO
-// - Handle exceptions like the Winter Classic and inaccurate penalty information
+// - Handle exceptions like the 2015 Winter Classic and inaccurate penalty information
 
 var fs = require("fs");
 var request = require("request");
 var mysql = require("mysql");
+var async = require("async");
 var config = require("./config");
 
 // Parse and store season argument
@@ -68,11 +69,27 @@ var recordedStrengthSits = ["ev5", "pp", "sh", "penShot", "other"];
 var recordedStats = ["toi", "ig", "is", "ibs", "ims", "ia1", "ia2", "blocked", "gf", "ga", "sf", "sa", "bsf", "bsa", "msf", "msa", "foWon", "foLost", "ofo", "dfo", "nfo", "penTaken", "penDrawn", "cfOff", "caOff"];
 
 //
-// Loop through each gameId
+// Loop through each gameId - wait 2 seconds between games to avoid overloading api and database
 //
 
-gameIds.forEach(function(gId) {
+async.eachSeries(gameIds, function(gId, callback) {
+	setTimeout(function() {
+		getData(gId);
+		callback(); // Callback to start next iteration
+	}, 2000);
+}, function(err) {
+	// Callback when all iterations finish
+	if (err) {
+		return next(err);
+	}
+	console.log("Done iterating through games");
+});
 
+//
+// Get raw data for gId, then call function to process the data
+//
+
+function getData(gId, callback) {
 	var urlId = season * 1000000 + gId;
 	var pbpJson;
 	var shiftJson;
@@ -129,7 +146,7 @@ gameIds.forEach(function(gId) {
 			}
 		});
 	}
-});
+}
 
 //
 // Process pbp and shift data for a specified game
@@ -638,6 +655,8 @@ function processData(gId, pbpJson, shiftJson) {
 	//
 	//
 
+	console.log("Game " + gId + ": Writing output files");
+
 	var fileGameId = (season * 1000000 + gId);
 
 	// Write csv header for team and player stats
@@ -785,6 +804,8 @@ function processData(gId, pbpJson, shiftJson) {
 	// Load data into database
 	//
 	//
+
+	console.log("Game " + gId + ": Loading data into database");
 
 	// Connect to database
 	var connection = mysql.createConnection({
