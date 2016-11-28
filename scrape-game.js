@@ -77,7 +77,7 @@ async.eachSeries(gameIds, function(gId, callback) {
 	setTimeout(function() {
 		getData(gId);
 		callback(); // Callback to start next iteration
-	}, 2000);
+	}, 3000);
 }, function(err) {
 	// Callback when all iterations finish
 	if (err) {
@@ -255,6 +255,7 @@ function processData(gId, pbpJson, shiftJson) {
 	var isPlayoffs = gId >= 30000;
 	var recordedEvents = ["goal", "shot", "missed_shot", "blocked_shot", "faceoff", "penalty"];
 	var eventsObject = pbpJson.liveData.plays.allPlays;
+
 	eventsObject.forEach(function(ev) {
 
 		// Store the max period
@@ -401,14 +402,18 @@ function processData(gId, pbpJson, shiftJson) {
 	//
 
 	// Append shifts to the player objects in playerData - skip shootout shifts
+	// Also skip shifts that list a player who isn't already in playerData
+	// In 2016020107, Schneider has shifts in the shift json, but isn't listed anywhere in the pbp or box score page
 	shiftJson = shiftJson["data"];
 	shiftJson.forEach(function(sh) {
 		if ((sh["period"] <= 4 && !isPlayoffs) || isPlayoffs) {
-			playerData[sh["playerId"].toString()]["shifts"].push({
-				period: sh["period"],
-				start: toSecs(sh["startTime"]),
-				end: toSecs(sh["endTime"])
-			});
+			if (playerData.hasOwnProperty(sh["playerId"].toString())) {
+				playerData[sh["playerId"].toString()]["shifts"].push({
+					period: sh["period"],
+					start: toSecs(sh["startTime"]),
+					end: toSecs(sh["endTime"])
+				});
+			}
 		}
 	});
 
@@ -517,8 +522,11 @@ function processData(gId, pbpJson, shiftJson) {
 
 			// If a faceoff occurred at 0:05, then attribute it to all players on ice during interval 0:05-0:06
 			// If a shot or penalty occurred at 0:05, then attribute it to all players on ice during interval 0:04-0:05
+			// Special case: If a shot occurred at 0:00, then attribute it to all players on ice during interval 0:00-0:01
+			// 		This occurred in period1, time0 of 2016020078 (eventIdx 3)
 			var interval;
-			if (ev["type"] === "faceoff") {
+			if (ev["type"] === "faceoff"
+				|| ["blocked_shot", "missed_shot", "shot"].indexOf(ev["type"]) >= 0 && ev["time"] === 0) {
 				interval = intervals.find(function(d) { return d["start"] === ev["time"]; });
 			} else {
 				interval = intervals.find(function(d) { return d["end"] === ev["time"]; });
