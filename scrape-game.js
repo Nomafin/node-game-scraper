@@ -69,7 +69,8 @@ var recordedStrengthSits = ["ev5", "pp", "sh", "penShot", "other"];
 var recordedStats = ["toi", "ig", "is", "ibs", "ims", "ia1", "ia2", "blocked", "gf", "ga", "sf", "sa", "bsf", "bsa", "msf", "msa", "foWon", "foLost", "ofo", "dfo", "nfo", "penTaken", "penDrawn", "cfOff", "caOff"];
 
 //
-// Loop through each gameId - wait 2 seconds between games to avoid overloading api and database
+// Loop through each gameId one at a time aysnchronously 
+// Wait 2 seconds between games to avoid overloading api and database
 //
 
 async.eachSeries(gameIds, function(gId, callback) {
