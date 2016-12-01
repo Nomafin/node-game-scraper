@@ -13,6 +13,7 @@ var fs = require("fs");
 var request = require("request");
 var pg = require("pg");
 var async = require("async");
+var _ = require("lodash");
 var config = require("./config");
 
 // Parse and store season argument
@@ -660,7 +661,10 @@ function processData(gId, pbpJson, shiftJson) {
 	// Increment off-ice stats
 	//
 
-	for (key in playerData) {
+	for (var key in playerData) {
+		if (!playerData.hasOwnProperty(key)) {
+			continue;
+		}
 		recordedStrengthSits.forEach(function(strSit) {
 			recordedScoreSits.forEach(function(scSit) {
 				var playerVenue = playerData[key]["venue"];
@@ -695,7 +699,10 @@ function processData(gId, pbpJson, shiftJson) {
 
 	// Write team and player stats
 	var queryString = "INSERT INTO game_stats VALUES ";
-	for (key in teamData) {
+	for (var key in teamData) {
+		if (!teamData.hasOwnProperty(key)) {
+			continue;
+		}
 		recordedStrengthSits.forEach(function(strSit) {
 			recordedScoreSits.forEach(function(scSit) {
 				// If all stats=0 for the given strSit and scSit, don't output this line
@@ -716,7 +723,10 @@ function processData(gId, pbpJson, shiftJson) {
 			});
 		});
 	}
-	for (key in playerData) {
+	for (var key in playerData) {
+		if (!playerData.hasOwnProperty(key)) {
+			continue;
+		}
 		recordedStrengthSits.forEach(function(strSit) {
 			recordedScoreSits.forEach(function(scSit) {
 				if (!isRowEmpty(playerData[key][strSit][scSit])) {
@@ -744,17 +754,34 @@ function processData(gId, pbpJson, shiftJson) {
 
 	// Write player shifts
 	var queryString = "INSERT INTO game_shifts VALUES ";
-	for (key in playerData) {
-		playerData[key]["shifts"].forEach(function(sh) {
+	for (var key in playerData) {
+		if (!playerData.hasOwnProperty(key)) {
+			continue;
+		}
+
+		// Output shifts as a string: start-end&start-end&...
+		var shiftsGroupedByPeriod = _.groupBy(playerData[key]["shifts"], "period");
+		for (var period in shiftsGroupedByPeriod) {
+
+			if (!shiftsGroupedByPeriod.hasOwnProperty(period)) {
+				continue;
+			}
+
+			var shiftOutput = "";
+			shiftsGroupedByPeriod[period].forEach(function(sh) {
+				shiftOutput += sh["start"] + "-" + sh["end"] + ";";
+			});
+			shiftOutput = shiftOutput.slice(0, -1);
+
+			// Create row
 			var line = season
 				+ "," + gId
 				+ ",'" + playerData[key]["team"] + "'"
 				+ "," + key
-				+ "," + sh["period"]
-				+ "," + sh["start"]
-				+ "," + sh["end"];
+				+ "," + parseInt(period)
+				+ ",'" + shiftOutput + "'";
 			queryString += "(" + line + "),";
-		});
+		}
 	}
 	queryString = queryString.slice(0, -1);
 	client.query(queryString, function(err) {
@@ -765,14 +792,18 @@ function processData(gId, pbpJson, shiftJson) {
 	});
 
 	// Write game_rosters
+	// For player names, escape any apostrophes
 	var queryString = "INSERT INTO game_rosters VALUES ";
-	for (key in playerData) {
+	for (var key in playerData) {
+		if (!playerData.hasOwnProperty(key)) {
+			continue;
+		}		
 		var line = season
 			+ "," + gId
 			+ ",'" + playerData[key]["team"] + "'"
 			+ "," + key
-			+ ",'" + playerData[key]["first"] + "'"
-			+ ",'" + playerData[key]["last"] + "'"
+			+ ",'" + playerData[key]["first"].replace(/'/g, "''") + "'"
+			+ ",'" + playerData[key]["last"].replace(/'/g, "''") + "'"
 			+ "," + playerData[key]["jersey"]
 			+ ",'" + playerData[key]["position"] + "'";
 		queryString += "(" + line + "),";
@@ -804,7 +835,7 @@ function processData(gId, pbpJson, shiftJson) {
 		// Start writing line to be inserted
 		var line = season + "," + gId + "," + ev["id"] + "," + ev["period"] + "," + ev["time"] + ",";
 		line += ev["score"][0] + "," + ev["score"][1] + "," + ev["skaters"][0].length + "," + ev["skaters"][1].length + "," + ev["hZone"] + "," + ev["locX"] + "," + ev["locY"] + ",";
-		line += "'" + ev["description"].replace(/,/g, ";") + "',"; // Replace commas in description to preserve csv format
+		line += "'" + ev["description"].replace(/,/g, ";").replace(/'/g, "''") + "',"; // Replace commas in description to preserve csv format. Also escape apostrophes in player's names
 		line += "'" + ev["type"] + "','" + ev["subtype"] + "','" + ev["team"] + "','" + ev["venue"] + "',"
 
 		// Write players and roles - ["a", "", "c"].toString() gives "a,,c"
