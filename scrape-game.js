@@ -11,7 +11,7 @@
 
 var fs = require("fs");
 var request = require("request");
-var mysql = require("mysql");
+var pg = require("pg");
 var async = require("async");
 var config = require("./config");
 
@@ -68,6 +68,17 @@ var recordedScoreSits = ["-3", "-2", "-1", "0", "1", "2", "3"];
 var recordedStrengthSits = ["ev5", "pp", "sh", "penShot", "other"];
 var recordedStats = ["toi", "ig", "is", "ibs", "ims", "ia1", "ia2", "blocked", "gf", "ga", "sf", "sa", "bsf", "bsa", "msf", "msa", "foWon", "foLost", "ofo", "dfo", "nfo", "penTaken", "penDrawn", "cfOff", "caOff"];
 
+// Instantiate database client
+var client = new pg.Client({
+	user: config.db.user,
+	database: config.db.db,
+	password: config.db.pass,
+	host: config.db.host,
+	port: config.db.port,
+	ssl: true
+});
+client.connect();
+
 //
 // Loop through each gameId one at a time aysnchronously 
 // Wait 2 seconds between games to avoid overloading api and database
@@ -84,6 +95,10 @@ async.eachSeries(gameIds, function(gId, callback) {
 		return next(err);
 	}
 	console.log("Done iterating through games");
+	// Wait a bit for the last iteration to finish before closing connection
+	setTimeout(function() {
+		client.end();
+	}, 9000);
 });
 
 //
@@ -660,129 +675,161 @@ function processData(gId, pbpJson, shiftJson) {
 
 	//
 	//
-	// Write data to output files
+	// Write output to database
 	//
 	//
 
-	console.log("Game " + gId + ": Writing output files");
+	console.log("Game " + gId + ": Writing results to database");
 
-	var fileGameId = (season * 1000000 + gId);
-
-	// Write csv header for team and player stats
-	var result = "season,gameId,team,playerId,strengthSit,scoreSit";
-	recordedStats.forEach(function(st) {
-		result += "," + st;
+	// Delete existing records with the same season and gameId
+	["game_stats", "game_shifts", "game_events", "game_rosters", "game_results"].forEach(function(table) {
+		var queryString = "DELETE FROM " + table
+			+ " WHERE season=" + season + " AND game_id=" + gId;
+		client.query(queryString, function(err) {
+			if (err) {
+				console.log("Error deleting records from: " + table);
+				throw err;
+			}
+		});
 	});
-	result += "\n";
 
-	// Write team stats
+	// Write team and player stats
+	var queryString = "INSERT INTO game_stats VALUES ";
 	for (key in teamData) {
 		recordedStrengthSits.forEach(function(strSit) {
 			recordedScoreSits.forEach(function(scSit) {
-
 				// If all stats=0 for the given strSit and scSit, don't output this line
 				if (!isRowEmpty(teamData[key][strSit][scSit])) {
-					var line = season + ","
-						+ gId + ","
-						+ teamData[key]["tricode"] + ","
-						+ "0" + ","
-						+ strSit + ","
-						+ scSit;
+					// Set playerId=0 for away team, playerId=1 for home team
+					var venueIdx = key === "away" ? 0 : 1;
+					var line = season
+						+ "," + gId
+						+ ",'" + teamData[key]["tricode"] + "'"
+						+ "," + venueIdx
+						+ ",'" + strSit + "'"
+						+ "," + scSit;
 					recordedStats.forEach(function(st) {
 						line += "," + teamData[key][strSit][scSit][st]
 					});
-					line += "\n";
-					result += line;
+					queryString += "(" + line + "),";
 				}
 			});
 		});
 	}
-
-	// Write player stats
 	for (key in playerData) {
 		recordedStrengthSits.forEach(function(strSit) {
 			recordedScoreSits.forEach(function(scSit) {
-
-				// If all stats=0 for the given strSit and scSit, don't output this line
 				if (!isRowEmpty(playerData[key][strSit][scSit])) {
-					var line = season + ","
-						+ gId + ","
-						+ playerData[key]["team"] + ","
-						+ key + ","
-						+ strSit + ","
-						+ scSit;
+					var line = season
+						+ "," + gId
+						+ ",'" + playerData[key]["team"] + "'"
+						+ "," + key
+						+ ",'" + strSit + "'"
+						+ "," + scSit;
 					recordedStats.forEach(function(st) {
 						line += "," + playerData[key][strSit][scSit][st]
 					});
-					line += "\n";
-					result += line;
+					queryString += "(" + line + "),";
 				}
 			});
 		});
 	}
+	queryString = queryString.slice(0, -1);
+	client.query(queryString, function(err) {
+		if (err) {
+			console.log("Error inserting records into: game_stats");
+			throw err;
+		}
+	});
 
-	saveFileSync("data/" + season + "/output/" + fileGameId + "-stats.csv", result);
-
-	// Write csv for player shifts
-	var result = "season,gameId,team,playerId,period,start,end\n";
+	// Write player shifts
+	var queryString = "INSERT INTO game_shifts VALUES ";
 	for (key in playerData) {
 		playerData[key]["shifts"].forEach(function(sh) {
-			var line = season + ","
-				+ gId + ","
-				+ playerData[key]["team"] + ","
-				+ key + ","
-				+ sh["period"] + ","
-				+ sh["start"] + ","
-				+ sh["end"] + "\n";
-			result += line;
+			var line = season
+				+ "," + gId
+				+ ",'" + playerData[key]["team"] + "'"
+				+ "," + key
+				+ "," + sh["period"]
+				+ "," + sh["start"]
+				+ "," + sh["end"];
+			queryString += "(" + line + "),";
 		});
 	}
+	queryString = queryString.slice(0, -1);
+	client.query(queryString, function(err) {
+		if (err) {
+			console.log("Error inserting records into: game_shifts");
+			throw err;
+		}
+	});
 
-	saveFileSync("data/" + season + "/output/" + fileGameId + "-shifts.csv", result);
-
-	// Write csv for game rosters
-	var result = "season,gameId,team,playerId,first,last,jersey,position\n";
+	// Write game_rosters
+	var queryString = "INSERT INTO game_rosters VALUES ";
 	for (key in playerData) {
-		var line = season + ","
-			+ gId + ","
-			+ playerData[key]["team"] + ","
-			+ key + ","
-			+ playerData[key]["first"] + ","
-			+ playerData[key]["last"] + ","
-			+ playerData[key]["jersey"] + ","
-			+ playerData[key]["position"] + "\n";
-		result += line;
+		var line = season
+			+ "," + gId
+			+ ",'" + playerData[key]["team"] + "'"
+			+ "," + key
+			+ ",'" + playerData[key]["first"] + "'"
+			+ ",'" + playerData[key]["last"] + "'"
+			+ "," + playerData[key]["jersey"]
+			+ ",'" + playerData[key]["position"] + "'";
+		queryString += "(" + line + "),";
 	}
+	queryString = queryString.slice(0, -1);
+	client.query(queryString, function(err) {
+		if (err) {
+			console.log("Error inserting records into: game_rosters");
+			throw err;
+		}
+	});
 
-	saveFileSync("data/" + season + "/output/" + fileGameId + "-rosters.csv", result);
-
-	// Write csv for events
-	var result = "season,gameId,eventId,period,time,"
-		+ "aScore,hScore,aSkaters,hSkaters,hZone,locX,locY,"
-		+ "desc,type,subtype,team,venue,"
-		+ "p1,p2,p3,p1Role,p2Role,p3Role,"
-		+ "aS1,aS2,aS3,aS4,aS5,aS6,aG,"
-		+ "hS1,hS2,hS3,hS4,hS5,hS6,hG\n";
+	// Write events
+	var queryString = "INSERT INTO game_events VALUES ";
 	eventData.forEach(function(ev) {
+
+		// Clean up values for database
+		["locX", "locY"].forEach(function(col) {
+			if (!ev[col]) {
+				ev[col] = "NULL";
+			}
+		});
+		if (!ev["hZone"]) {
+			ev["hZone"] = "NULL";
+		} else {
+			ev["hZone"] = "'" + ev["hZone"] + "'";
+		}
+
+		// Start writing line to be inserted
 		var line = season + "," + gId + "," + ev["id"] + "," + ev["period"] + "," + ev["time"] + ",";
 		line += ev["score"][0] + "," + ev["score"][1] + "," + ev["skaters"][0].length + "," + ev["skaters"][1].length + "," + ev["hZone"] + "," + ev["locX"] + "," + ev["locY"] + ",";
-		line += ev["description"].replace(/,/g, ";") + ","; // Replace commas in description to preserve csv format
-		line += ev["type"] + "," + ev["subtype"] + "," + ev["team"] + "," + ev["venue"] + ","
+		line += "'" + ev["description"].replace(/,/g, ";") + "',"; // Replace commas in description to preserve csv format
+		line += "'" + ev["type"] + "','" + ev["subtype"] + "','" + ev["team"] + "','" + ev["venue"] + "',"
 
 		// Write players and roles - ["a", "", "c"].toString() gives "a,,c"
-		var players = ["", "", ""];
-		var roles = ["", "", ""];
+		var players = ["NULL", "NULL", "NULL"];
+		var roles = ["NULL", "NULL", "NULL"];
 		ev["roles"].forEach(function(r, i) {
 			players[i] = r["player"];
 			roles[i] = r["role"];
 		});
 		line += players.toString() + ",";
+
+		// Wrap each role in quotes
+		roles = roles.map(function(d) {
+			if (d) { 
+				return "'" + d + "'";
+			} else {
+				return "NULL";
+			}
+		});
 		line += roles.toString() + ",";
 
 		// Write on-ice players 
 		["away", "home"].forEach(function(venue, vIdx) {
 
-			var players = ["", "", "", "", "", "", ""];
+			var players = ["NULL", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL"];
 
 			// Skaters recorded in idx0 to idx5
 			ev["skaters"][vIdx].forEach(function(pId, i) {
@@ -798,52 +845,19 @@ function processData(gId, pbpJson, shiftJson) {
 			line += players.toString();
 			if (venue === "away") {
 				line += ",";
-			} else if (venue === "home") {
-				line += "\n";
 			}
 		});
-
-		result += line;
+		queryString += "(" + line + "),";
+	});
+	queryString = queryString.slice(0, -1);
+	client.query(queryString, function(err) {
+		if (err) {
+			console.log("Error inserting records into: game_events");
+			throw err;
+		}
 	});
 
-	saveFileSync("data/" + season + "/output/" + fileGameId + "-events.csv", result);
-
-	//
-	//
-	// Load data into database
-	//
-	//
-
-	console.log("Game " + gId + ": Loading data into database");
-
-	// Connect to database
-	var connection = mysql.createConnection({
-		host: config.db.host,
-		user: config.db.user,
-		password: config.db.pass,
-		database: config.db.db
-	});
-	connection.connect();
-
-	// Delete existing records with the same season and gameId
-	["game_stats", "game_shifts", "game_events", "game_rosters", "game_results"].forEach(function(table) {
-		var queryString = "DELETE FROM " + table
-			+ " WHERE season=" + season + " AND gameId=" + gId;
-		connection.query(queryString);
-	});
-
-	// Insert team and player stats into database
-	["stats", "shifts", "events", "rosters"].forEach(function(table) {
-		var path = "data/" + season + "/output/" + fileGameId + "-" + table + ".csv";
-		var queryString = "LOAD DATA LOCAL INFILE '" + path + "'"
-			+ " REPLACE INTO TABLE game_" + table
-			+ " FIELDS TERMINATED BY ',' ENCLOSED BY '\"'"
-			+ " LINES TERMINATED BY '\\n'"
-			+ " IGNORE 1 LINES";
-		connection.query(queryString);		
-	});
-
-	// Insert game result into database - include shootout results in the final result
+	// Write game result - include shootout results in the final result
 	var finalScore = [pbpJson.liveData.linescore.teams.away.goals, pbpJson.liveData.linescore.teams.home.goals];
 	var queryString = "INSERT INTO game_results"
 		+ " VALUES ("
@@ -855,9 +869,12 @@ function processData(gId, pbpJson, shiftJson) {
 			+ finalScore[0] + ","
 			+ finalScore[1] + ","
 			+ maxPeriod + ")";
-	connection.query(queryString);
-
-	connection.end();
+	client.query(queryString, function(err) {
+		if (err) {
+			console.log("Error inserting records into: game_results");
+			throw err;
+		}
+	});
 }
 
 // Check if all the stats in a row equal 0
@@ -887,12 +904,6 @@ function saveFile(path, contents) {
 			 return console.log(err);
 		}
 	}); 
-	return;
-}
-
-// Synchronously save file to disk
-function saveFileSync(path, contents) {
-	fs.writeFileSync(path, contents);
 	return;
 }
 

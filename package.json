@@ -18,6 +18,7 @@
   "homepage": "https://github.com/kevkan/node-game-scraper#readme",
   "dependencies": {
     "async": "^2.1.4",
+    "pg": "^6.1.0",
     "request": "^2.78.0"
   }
 }
