@@ -14,6 +14,7 @@ var request = require("request");
 var pg = require("pg");
 var async = require("async");
 var _ = require("lodash");
+var url = require("url");
 var config = require("./config");
 
 // Parse and store season argument
@@ -70,12 +71,14 @@ var recordedStrengthSits = ["ev5", "pp", "sh", "penShot", "other"];
 var recordedStats = ["toi", "ig", "is", "ibs", "ims", "ia1", "ia2", "blocked", "gf", "ga", "sf", "sa", "bsf", "bsa", "msf", "msa", "foWon", "foLost", "ofo", "dfo", "nfo", "penTaken", "penDrawn", "cfOff", "caOff"];
 
 // Instantiate database client
+var params = url.parse(config.db.url);
+var auth = params.auth.split(":");
 var client = new pg.Client({
-	user: config.db.user,
-	database: config.db.db,
-	password: config.db.pass,
-	host: config.db.host,
-	port: config.db.port,
+	user: auth[0],
+	password: auth[1],
+	host: params.hostname,
+	port: params.port,
+	database: params.pathname.split("/")[1],
 	ssl: true
 });
 client.connect();
