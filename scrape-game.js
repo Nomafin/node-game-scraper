@@ -67,7 +67,7 @@ console.log("Games to scrape: " + gameIds);
 
 // Contexts and stats to record
 var recordedScoreSits = ["-3", "-2", "-1", "0", "1", "2", "3"];
-var recordedStrengthSits = ["ev5", "pp", "sh", "penShot", "other"];
+var recordedStrengthSits = ["ev5", "pp", "sh", "penShot", "noOwnG", "noOppG", "other"];
 var recordedStats = ["toi", "ig", "is", "ibs", "ims", "ia1", "ia2", "blocked", "gf", "ga", "sf", "sa", "bsf", "bsa", "msf", "msa", "foWon", "foLost", "ofo", "dfo", "nfo", "penTaken", "penDrawn", "cfOff", "caOff"];
 
 // Instantiate database client
@@ -952,8 +952,10 @@ function getScoreSits(aScore, hScore) {
 // Converts away and home goalie/skater counts into [awayStrengthSit, homeStrengthSit]
 // countObject: { goalieCounts: [1, 1], skaterCounts: [5, 5] }
 function getStrengthSits(countObject) {
-	if (countObject["goalieCounts"][0] < 1 || countObject["goalieCounts"][1] < 1) {
-		return ["other", "other"];
+	if (countObject["goalieCounts"][0] < 1 && countObject["goalieCounts"][1] > 0) {
+		return ["noOwnG", "noOppG"];
+	} else if (countObject["goalieCounts"][0] > 0 && countObject["goalieCounts"][1] < 1) {
+		return ["noOppG", "noOwnG"];
 	} else if (countObject["skaterCounts"][0] === 5 && countObject["skaterCounts"][1] === 5) {
 		return ["ev5", "ev5"];
 	} else if (countObject["skaterCounts"][0] > countObject["skaterCounts"][1]
