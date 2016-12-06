@@ -188,7 +188,7 @@ function processData(gId, pbpJson, shiftJson) {
 	}
 
 	// Variables for output
-	var gameDate = 0;		// An int including date and time
+	var gameDate = pbpJson.gameData.datetime.dateTime;	// A string in UTC time: "2016-02-20T00:00:00Z"
 	var maxPeriod = 0;
 	var eventData = [];		// An array of event objects
 	var playerData = {};	// An associative array of objects, using playerId (as strings) as keys
@@ -196,10 +196,6 @@ function processData(gId, pbpJson, shiftJson) {
 		away: {},
 		home: {}
 	};
-
-	// Get game date: convert 2016-11-17T00:30:00Z to 20161117003000
-	gameDate = pbpJson.gameData.datetime.dateTime;
-	gameDate = gameDate.replace(/-/g, "").replace("T", "").replace(/:/g, "").replace("Z", "");
 
 	//
 	// Prepare team output
@@ -895,14 +891,14 @@ function processData(gId, pbpJson, shiftJson) {
 	var finalScore = [pbpJson.liveData.linescore.teams.away.goals, pbpJson.liveData.linescore.teams.home.goals];
 	var queryString = "INSERT INTO game_results"
 		+ " VALUES ("
-			+ season + ","
-			+ gameDate + ","
-			+ gId + ","
-			+ "'" + teamData.away.tricode + "',"
-			+ "'" + teamData.home.tricode + "',"
-			+ finalScore[0] + ","
-			+ finalScore[1] + ","
-			+ maxPeriod + ")";
+			+ season
+			+ ",'" + gameDate + "'"
+			+ "," + gId
+			+ ",'" + teamData.away.tricode + "'"
+			+ ",'" + teamData.home.tricode + "'"
+			+ "," + finalScore[0]
+			+ "," + finalScore[1]
+			+ "," + maxPeriod + ")";
 	client.query(queryString, function(err) {
 		if (err) {
 			console.log("Error inserting records into: game_results");
