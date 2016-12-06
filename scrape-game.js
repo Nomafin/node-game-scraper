@@ -437,8 +437,13 @@ function processData(gId, pbpJson, shiftJson) {
 
 		// Set the period duration
 		var prdDur = 20 * 60;
-		if (!isPlayoffs && prd === 4) {
-			prdDur = 5 * 60;
+		if (!isPlayoffs) {
+			if (prd === 4) {
+				prdDur = 5 * 60;
+			} else if (prd === 5) {
+				// Skip shootout
+				continue;
+			}
 		}
 
 		// Initialize array to store information about each 1-second interval
