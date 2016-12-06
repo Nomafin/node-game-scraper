@@ -189,7 +189,8 @@ function processData(gId, pbpJson, shiftJson) {
 
 	// Variables for output
 	var gameDate = pbpJson.gameData.datetime.dateTime;	// A string in UTC time: "2016-02-20T00:00:00Z"
-	var maxPeriod = 0;
+	var maxPeriod = 0;		// Period in which the game ended (not 0-based)
+	var maxTime = 0;		// Time at which the game ended in the last period (maxPeriod)
 	var eventData = [];		// An array of event objects
 	var playerData = {};	// An associative array of objects, using playerId (as strings) as keys
 	var teamData = {		// An associative array of objects, using "away" and "home" as keys
@@ -273,14 +274,17 @@ function processData(gId, pbpJson, shiftJson) {
 
 	eventsObject.forEach(function(ev) {
 
-		// Store the max period
 		var period = ev["about"]["period"];
-		if (period > maxPeriod) {
+		var type = ev["result"]["eventTypeId"].toLowerCase();
+
+		// Store period and time at which game ended
+		// For SO, the json's game_end will have period=5, time=0
+		if (type === "game_end") {
 			maxPeriod = period;
+			maxTime = toSecs(ev["about"]["periodTime"]);
 		}
 
 		// Skip irrelevant events and skip shootout events
-		var type = ev["result"]["eventTypeId"].toLowerCase();
 		if (recordedEvents.indexOf(type) < 0) {
 			return;
 		} else if (!isPlayoffs && period > 4) {
@@ -436,14 +440,12 @@ function processData(gId, pbpJson, shiftJson) {
 	for (var prd = 1; prd <= maxPeriod; prd++) {
 
 		// Set the period duration
+		// For the final period, use the maxPeriod and maxTime we got from the game_end event
 		var prdDur = 20 * 60;
-		if (!isPlayoffs) {
-			if (prd === 4) {
-				prdDur = 5 * 60;
-			} else if (prd === 5) {
-				// Skip shootout
-				continue;
-			}
+		if (prd === maxPeriod) {
+			prdDur = maxTime;
+		} else if (prd === 4 && !isPlayoffs) {
+			prdDur = 5 * 60;
 		}
 
 		// Initialize array to store information about each 1-second interval
@@ -524,16 +526,13 @@ function processData(gId, pbpJson, shiftJson) {
 
 		//
 		// Increment toi for each score and strength situation for players and teams
-		// Don't increment intervals with 0 skaters on ice (to handle OT periods that end early)
 		//
 
 		intervals.forEach(function(interval) {
-			if (interval["skaters"][0].length > 0 && interval["skaters"][1].length > 0) {
-				["away", "home"].forEach(function(venue, venueIdx) {
-					incrementOnIceStats(playerData, interval["skaters"][venueIdx], interval["goalies"][venueIdx], interval["strengthSits"][venueIdx], interval["scoreSits"][venueIdx], "toi", 1);
-					teamData[venue][interval["strengthSits"][venueIdx]][interval["scoreSits"][venueIdx]]["toi"]++;
-				});
-			}
+			["away", "home"].forEach(function(venue, venueIdx) {
+				incrementOnIceStats(playerData, interval["skaters"][venueIdx], interval["goalies"][venueIdx], interval["strengthSits"][venueIdx], interval["scoreSits"][venueIdx], "toi", 1);
+				teamData[venue][interval["strengthSits"][venueIdx]][interval["scoreSits"][venueIdx]]["toi"]++;
+			});
 		});
 
 		//
