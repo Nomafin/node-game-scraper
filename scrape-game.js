@@ -524,13 +524,16 @@ function processData(gId, pbpJson, shiftJson) {
 
 		//
 		// Increment toi for each score and strength situation for players and teams
+		// Don't increment intervals with 0 skaters on ice (to handle OT periods that end early)
 		//
 
 		intervals.forEach(function(interval) {
-			["away", "home"].forEach(function(venue, venueIdx) {
-				incrementOnIceStats(playerData, interval["skaters"][venueIdx], interval["goalies"][venueIdx], interval["strengthSits"][venueIdx], interval["scoreSits"][venueIdx], "toi", 1);
-				teamData[venue][interval["strengthSits"][venueIdx]][interval["scoreSits"][venueIdx]]["toi"]++;
-			});
+			if (interval["skaters"][0].length > 0 && interval["skaters"][1].length > 0) {
+				["away", "home"].forEach(function(venue, venueIdx) {
+					incrementOnIceStats(playerData, interval["skaters"][venueIdx], interval["goalies"][venueIdx], interval["strengthSits"][venueIdx], interval["scoreSits"][venueIdx], "toi", 1);
+					teamData[venue][interval["strengthSits"][venueIdx]][interval["scoreSits"][venueIdx]]["toi"]++;
+				});
+			}
 		});
 
 		//
