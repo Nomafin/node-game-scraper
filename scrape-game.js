@@ -6,9 +6,6 @@
 // If endGameId is specified, all games between startGameId and endGameId (inclusive) are scraped
 // Add "download" to the command to always download new input files and overwrite any existing local files
 
-// TODO
-// - Handle exceptions like the 2015 Winter Classic and inaccurate penalty information
-
 var fs = require("fs");
 var request = require("request");
 var pg = require("pg");
@@ -98,10 +95,10 @@ async.eachSeries(gameIds, function(gId, callback) {
 	if (err) {
 		return next(err);
 	}
-	console.log("Done iterating through games");
 	// Wait a bit for the last iteration to finish before closing connection
 	setTimeout(function() {
 		client.end();
+		console.log("Done iterating through games");
 	}, 9000);
 });
 
@@ -197,6 +194,7 @@ function processData(gId, pbpJson, shiftJson) {
 		away: {},
 		home: {}
 	};
+	var teamStrSitTimes;	// An associative array of objects to store when each team played at a ev5, pp, or sh. Search for 'teamStrSitTimes = {};' to see how it's intialized
 
 	//
 	// Prepare team output
@@ -436,6 +434,23 @@ function processData(gId, pbpJson, shiftJson) {
 		}
 	});
 
+	// Initalize object to store when each team played at ev5, pp, or sh
+	teamStrSitTimes = {};
+	for (var prd = 1; prd <= maxPeriod; prd++) {
+		teamStrSitTimes[prd.toString()] = {
+			away: {
+				ev5: [],
+				pp: [],
+				sh: []
+			},
+			home: {
+				ev5: [],
+				pp: [],
+				sh: []
+			}
+		}
+	}
+
 	// Process shifts, one period at a time
 	for (var prd = 1; prd <= maxPeriod; prd++) {
 
@@ -494,6 +509,12 @@ function processData(gId, pbpJson, shiftJson) {
 				goalieCounts: [interval["goalies"][0].length, interval["goalies"][1].length],
 				skaterCounts: [interval["skaters"][0].length, interval["skaters"][1].length]
 			});
+
+			// Record start time in teamStrSitTimes if the teams were playing at ev5, pp, or sh
+			if (interval["strengthSits"][0] === "ev5" || interval["strengthSits"][0] === "pp" || interval["strengthSits"][0] === "sh") {
+				teamStrSitTimes[prd]["away"][interval["strengthSits"][0]].push(interval["start"]);
+				teamStrSitTimes[prd]["home"][interval["strengthSits"][1]].push(interval["start"]);
+			}
 		});
 
 		// For goals scored in previous period, add the goal to every interval of the current period
@@ -684,15 +705,53 @@ function processData(gId, pbpJson, shiftJson) {
 	}
 
 	//
+	// Convert the teamStrSitTimes array of timepoints into ranges: [1,2,3,7,8,9] becomes [[1,3], [7,9]]
+	//
+
+	for (var prd = 1; prd <= maxPeriod; prd++) {
+		["away", "home"].forEach(function(v) {
+			["ev5", "pp", "sh"].forEach(function(sit) {
+
+				// Sort the timepoints and refer to it as "times" for convenience
+				teamStrSitTimes[prd.toString()][v][sit].sort(function(a, b) { return a - b; });
+				var times = teamStrSitTimes[prd.toString()][v][sit];
+
+				// Iterate through the timepoints and record [start, end] pairs
+				var ranges = [];
+				var start;
+				var end;
+				for (var i = 0; i < times.length; i++) {
+					if (i === 0) {
+						start = times[i];
+					} else if (times[i] - times[i - 1] > 1) {
+						// If the difference between the current timepoint and the previous timepoint is more than 1s, then end the interval and start a new one
+						// Add 1s to the end time to match how shifts are stored: playerA's shift spans :00-:10, playerB takes his place at :10-:15. Goalies play 0-1200s.
+						end = times[i - 1] + 1;
+						ranges.push([start, end]);
+						start = times[i];
+					} else if (i === times.length - 1) {
+						// If we're at the last timepoint, then end the interval
+						end = times[i] + 1;
+						ranges.push([start, end]);
+					}
+				}
+				
+				// Replace original array of timepoints with new array of ranges
+				teamStrSitTimes[prd.toString()][v][sit] = ranges;
+			});
+		});
+	}
+
+	//
 	//
 	// Write output to database
 	//
 	//
-
+	
 	console.log("Game " + gId + ": Writing results to database");
 
 	// Delete existing records with the same season and gameId
-	["game_stats", "game_shifts", "game_events", "game_rosters", "game_results"].forEach(function(table) {
+	["game_stats", "game_shifts", "game_events", "game_rosters", "game_results", "game_strength_situations"].forEach(function(table) {
 		var queryString = "DELETE FROM " + table
 			+ " WHERE season=" + season + " AND game_id=" + gId;
 		client.query(queryString, function(err) {
@@ -793,6 +852,44 @@ function processData(gId, pbpJson, shiftJson) {
 	client.query(queryString, function(err) {
 		if (err) {
 			console.log("Error inserting records into: game_shifts");
+			throw err;
+		}
+	});
+
+	// Write records to game_strength_situations
+	var queryString = "INSERT INTO game_strength_situations VALUES ";
+	for (var prd = 1; prd <= maxPeriod; prd++) {
+		["away", "home"].forEach(function(v) {
+			["ev5", "pp", "sh"].forEach(function(sit) {
+				// Convert the array of ranges into a string: start-end;start-end;...
+				var rangeStr = "";
+				teamStrSitTimes[prd.toString()][v][sit].forEach(function(range) {
+					if (range[0] === range[1]) {
+						rangeStr += range[0].toString();
+					} else {
+						rangeStr += (range[0] + "-" + range[1])
+					}
+					rangeStr += ";";
+				});
+				rangeStr = rangeStr.slice(0, -1);
+
+				// Append to query if rangeStr isn't empty
+				if (rangeStr.length > 0) {
+					var line = season
+						+ "," + gId
+						+ ",'" + teamData[v]["tricode"] + "'"
+						+ "," + prd
+						+ ",'" + sit + "'"
+						+ ",'" + rangeStr + "'";
+					queryString += "(" + line + "),";
+				}
+			});
+		});
+	}
+	queryString = queryString.slice(0, -1);
+	client.query(queryString, function(err) {
+		if (err) {
+			console.log("Error inserting records into: game_strength_situations");
 			throw err;
 		}
 	});
