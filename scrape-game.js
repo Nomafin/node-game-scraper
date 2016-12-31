@@ -900,14 +900,15 @@ function processData(gId, pbpJson, shiftJson) {
 	for (var key in playerData) {
 		if (!playerData.hasOwnProperty(key)) {
 			continue;
-		}		
+		}
+		var jersey = playerData[key]["jersey"] ? playerData[key]["jersey"] : "NULL"; // Some scratched players don't have a jersey number listed
 		var line = season
 			+ "," + gId
 			+ ",'" + playerData[key]["team"] + "'"
 			+ "," + key
 			+ ",'" + playerData[key]["first"].replace(/'/g, "''") + "'"
 			+ ",'" + playerData[key]["last"].replace(/'/g, "''") + "'"
-			+ "," + playerData[key]["jersey"]
+			+ "," + jersey
 			+ ",'" + playerData[key]["position"] + "'";
 		queryString += "(" + line + "),";
 	}
