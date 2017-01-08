@@ -967,8 +967,11 @@ function processData(gId, pbpJson, shiftJson) {
 			var players = ["NULL", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL"];
 
 			// Skaters recorded in idx0 to idx5
+			// Ignore the 7th and beyond skaters
 			ev["skaters"][vIdx].forEach(function(pId, i) {
-				players[i] = pId;
+				if (i <= 5) {
+					players[i] = pId;
+				}
 			});
 
 			// Goalie recorded in idx6 - if there's multiple goalies, just take the first
