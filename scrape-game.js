@@ -566,8 +566,8 @@ function processData(gId, pbpJson, shiftJson) {
 			// If a faceoff occurred at 0:05, then attribute it to all players on ice during interval 0:05-0:06
 			// If a shot or penalty occurred at 0:05, then attribute it to all players on ice during interval 0:04-0:05
 			// Special case: If a shot occurred at 0:00, then attribute it to all players on ice during interval 0:00-0:01
-			// Special case: If a faceoff occurred at 20:00 (at the end of of the period), then attribute it to all players on ice during interval 19:59-20:00
 			// 		This occurred in period1, time0 of 2016020078 (eventIdx 3)
+			// Special case: If a faceoff occurred at 20:00 (at the end of of the period), then attribute it to all players on ice during interval 19:59-20:00
 
 			var interval;
 			if (ev["type"] === "faceoff" && ev["time"] === prdDur) {
