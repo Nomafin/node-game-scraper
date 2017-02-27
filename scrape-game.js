@@ -81,7 +81,7 @@ var client = new pg.Client({
 client.connect();
 
 //
-// Loop through each gameId one at a time aysnchronously 
+// Loop through each gameId one at a time aysnchronously
 // Wait 2 seconds between games to avoid overloading api and database
 //
 
@@ -265,7 +265,7 @@ function processData(gId, pbpJson, shiftJson) {
 	// Prepare events output
 	// eventsObject is an array of event objects
 	//
-	
+
 	var isPlayoffs = gId >= 30000;
 	var recordedEvents = ["goal", "shot", "missed_shot", "blocked_shot", "faceoff", "penalty"];
 	var eventsObject = pbpJson.liveData.plays.allPlays;
@@ -402,7 +402,7 @@ function processData(gId, pbpJson, shiftJson) {
 				var isPenShotFound = false;
 				while (i + j < eventData.length && !isPenShotFound) {
 					if (["goal", "shot", "missed_shot", "blocked_shot"].indexOf(eventData[i + j]["type"]) >= 0) {
-						eventData[i + 1]["description"] += " {penalty_shot}" 
+						eventData[i + 1]["description"] += " {penalty_shot}"
 						isPenShotFound = true;
 					} else {
 						j++;
@@ -527,7 +527,7 @@ function processData(gId, pbpJson, shiftJson) {
 		goals.forEach(function(g) {
 
 			var venueIdx = g["venue"] === "away" ? 0 : 1;
-			
+
 			if (g["period"] < prd) {
 				intervals.forEach(function(interval) {
 					interval["score"][venueIdx]++;
@@ -566,10 +566,14 @@ function processData(gId, pbpJson, shiftJson) {
 			// If a faceoff occurred at 0:05, then attribute it to all players on ice during interval 0:05-0:06
 			// If a shot or penalty occurred at 0:05, then attribute it to all players on ice during interval 0:04-0:05
 			// Special case: If a shot occurred at 0:00, then attribute it to all players on ice during interval 0:00-0:01
+			// Special case: If a faceoff occurred at 20:00 (at the end of of the period), then attribute it to all players on ice during interval 19:59-20:00
 			// 		This occurred in period1, time0 of 2016020078 (eventIdx 3)
+
 			var interval;
-			if (ev["type"] === "faceoff"
-				|| ["blocked_shot", "missed_shot", "shot"].indexOf(ev["type"]) >= 0 && ev["time"] === 0) {
+			if (ev["type"] === "faceoff" && ev["time"] === prdDur) {
+				interval = intervals.find(function(d) { return d["end"] === ev["time"]; });
+			} else if (ev["type"] === "faceoff"
+				|| (["blocked_shot", "missed_shot", "shot"].indexOf(ev["type"]) >= 0 && ev["time"] === 0)) {
 				interval = intervals.find(function(d) { return d["start"] === ev["time"]; });
 			} else {
 				interval = intervals.find(function(d) { return d["end"] === ev["time"]; });
@@ -594,7 +598,7 @@ function processData(gId, pbpJson, shiftJson) {
 	//
 
 	eventData.forEach(function(ev) {
-		
+
 		// Get score and strength situations
 		var scoreSits = getScoreSits(ev["score"][0], ev["score"][1]);
 		var strengthSits = getStrengthSits({
@@ -735,7 +739,7 @@ function processData(gId, pbpJson, shiftJson) {
 						ranges.push([start, end]);
 					}
 				}
-				
+
 				// Replace original array of timepoints with new array of ranges
 				teamStrSitTimes[prd.toString()][v][sit] = ranges;
 			});
@@ -747,7 +751,7 @@ function processData(gId, pbpJson, shiftJson) {
 	// Write output to database
 	//
 	//
-	
+
 	console.log("Game " + gId + ": Writing results to database");
 
 	// Delete existing records with the same season and gameId
@@ -953,7 +957,7 @@ function processData(gId, pbpJson, shiftJson) {
 
 		// Wrap each role in quotes
 		roles = roles.map(function(d) {
-			if (d) { 
+			if (d) {
 				return "'" + d + "'";
 			} else {
 				return "NULL";
@@ -961,7 +965,7 @@ function processData(gId, pbpJson, shiftJson) {
 		});
 		line += roles.toString() + ",";
 
-		// Write on-ice players 
+		// Write on-ice players
 		["away", "home"].forEach(function(venue, vIdx) {
 
 			var players = ["NULL", "NULL", "NULL", "NULL", "NULL", "NULL", "NULL"];
@@ -1041,7 +1045,7 @@ function saveFile(path, contents) {
 		if (err) {
 			 return console.log(err);
 		}
-	}); 
+	});
 	return;
 }
 
